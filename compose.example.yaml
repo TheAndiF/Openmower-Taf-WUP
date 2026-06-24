@@ -1,0 +1,21 @@
+services:
+  waha_mqtt_controller:
+    image: ghcr.io/DEIN_GITHUB_NAME/openmower-taf-wup:latest
+    container_name: waha_mqtt_controller
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=${MQTT_HOST:-Mosquitto}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_BASE_TOPIC=${MQTT_BASE_TOPIC:-waha}
+      - WAHA_URL=${WAHA_URL:-http://waha:3000}
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - CONTROLLER_REFRESH_SECONDS=${CONTROLLER_REFRESH_SECONDS:-60}
+      - DATA_DIR=/data
+    volumes:
+      - ./controller_data:/data
+    networks:
+      - openmower_default
+
+networks:
+  openmower_default:
+    external: true

@@ -1,0 +1,9 @@
+{
+  "default_group": "",
+  "forward_topics": [],
+  "templates": {
+    "openmower/alerts/#": "OpenMower Alarm: {payload}",
+    "openmower/status/error": "OpenMower Fehler: {payload}"
+  },
+  "group_aliases": {}
+}

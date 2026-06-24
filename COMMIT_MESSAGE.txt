@@ -1,0 +1,23 @@
+BL_Add initial WAHA MQTT controller
+Date: 2026-06-24
+Summary:
+- Added initial Docker-based WAHA MQTT controller.
+- Added MQTT status topics for WAHA sessions and WhatsApp groups.
+- Added masked group aliases and groupMetadata.subject handling.
+- Added MQTT commands for default group selection, message sending, topic forwarding and templates.
+- Added GitHub Actions workflow for multi-platform container builds.
+- Added example Compose, environment, configuration and documentation files.
+Changed files:
+- .github/workflows/docker-image.yml
+- .gitignore
+- README.md
+- .env.example
+- compose.example.yaml
+- bridge/Dockerfile
+- bridge/requirements.txt
+- bridge/controller.py
+- bridge/config.example.json
+- docs/mqtt-topics.md
+- docs/openmower-deploy.md
+- CHANGELOG.md
+- COMMIT_MESSAGE.txt

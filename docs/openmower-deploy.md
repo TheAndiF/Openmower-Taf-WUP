@@ -1,86 +1,74 @@
 # OpenMower Deployment
 
-This guide assumes that WAHA already runs in a separate Dockge stack called `whatsapp` and that the existing OpenMower Mosquitto broker is available in Docker network `openmower_default`.
+## 1. Update the WhatsApp stack
 
-## 1. Build image through GitHub Actions
-
-Push the repository to GitHub. The workflow `.github/workflows/docker-image.yml` builds and publishes:
-
-```text
-ghcr.io/<github-owner>/openmower-taf-wup:latest
-```
-
-The image is built for:
-
-```text
-linux/amd64
-linux/arm64
-```
-
-## 2. Use image in `/opt/stacks/whatsapp/compose.yaml`
-
-Add the service below to the existing WhatsApp stack next to the `waha` service:
+The `waha` container must be able to call the controller webhook internally:
 
 ```yaml
-  waha_mqtt_controller:
-    image: ghcr.io/DEIN_GITHUB_NAME/openmower-taf-wup:latest
-    container_name: waha_mqtt_controller
-    restart: unless-stopped
-    environment:
-      - MQTT_HOST=Mosquitto
-      - MQTT_PORT=1883
-      - MQTT_BASE_TOPIC=waha
-      - WAHA_URL=http://waha:3000
-      - WAHA_API_KEY=${WAHA_API_KEY}
-      - CONTROLLER_REFRESH_SECONDS=60
-      - DATA_DIR=/data
-    volumes:
-      - ./controller_data:/data
-    depends_on:
-      - waha
-    networks:
-      - openmower_default
+- WHATSAPP_HOOK_URL=http://waha_mqtt_controller:8080/webhook
+- WHATSAPP_HOOK_EVENTS=message
 ```
 
-The stack must contain:
+The controller does not need an external port. It listens only inside the Docker network.
 
-```yaml
-networks:
-  openmower_default:
-    external: true
-```
-
-## 3. Start
+## 2. Pull and start
 
 ```bash
 cd /opt/stacks/whatsapp
 docker compose pull
 docker compose up -d
+```
+
+## 3. Check logs
+
+```bash
 docker logs waha_mqtt_controller --tail=100
 ```
 
-## 4. Test via MQTT
-
-Show WAHA topics:
+## 4. Check MQTT topics
 
 ```bash
 docker exec -it Mosquitto mosquitto_sub -h localhost -t 'waha/#' -v
 ```
 
-Refresh:
+## 5. Configure default target group
 
 ```bash
-docker exec -it Mosquitto mosquitto_pub -h localhost -t 'waha/cmd/refresh' -m '1'
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'waha/config/default_group/set' \
+  -m 'g001'
 ```
 
-Select default group:
+## 6. Configure the Mobert listen group
 
 ```bash
-docker exec -it Mosquitto mosquitto_pub -h localhost -t 'waha/config/default_group/set' -m 'g001'
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'waha/config/bot/listen_group/set' \
+  -m 'g001'
 ```
 
-Send test message:
+## 7. Enable Mobert and set the wake word
 
 ```bash
-docker exec -it Mosquitto mosquitto_pub -h localhost -t 'waha/send' -m 'Testnachricht über MQTT'
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'waha/config/bot/enabled/set' \
+  -m 'true'
+
+ docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'waha/config/bot/wake_word/set' \
+  -m 'Mobert'
 ```
+
+## 8. Test in WhatsApp
+
+Write this inside the configured listen group:
+
+```text
+Mobert ?
+```
+
+The controller should reply with the available commands.

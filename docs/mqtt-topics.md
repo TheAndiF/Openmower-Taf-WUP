@@ -8,89 +8,111 @@ waha
 
 ## Published retained status topics
 
-| Topic | Payload | Description |
-|---|---|---|
-| `waha/status/online` | `true` / `false` | Controller availability. Retained MQTT LWT is used. |
-| `waha/status/last_update` | ISO timestamp | Last successful WAHA refresh. |
-| `waha/status/error` | Text | Last status refresh error, empty if OK. |
-| `waha/sessions/list` | JSON | All sessions as detected by WAHA. |
-| `waha/session/name` | Text | Selected active session name. |
-| `waha/session/status` | Text | Selected active session status. |
-| `waha/session/account_masked` | Text | Masked connected WhatsApp account. |
-| `waha/groups/list` | JSON | All groups with aliases and masked chat IDs. |
-| `waha/groups/<key>/subject` | Text | Group name from `groupMetadata.subject`. |
-| `waha/groups/<key>/chatId_masked` | Text | Masked internal WhatsApp group ID. |
-| `waha/groups/<key>/selected` | `true` / `false` | Whether this group is the default target. |
-| `waha/config/default_group/value` | Text | Current default group alias, for example `g001`. |
-| `waha/config/default_group/subject` | Text | Human-readable subject of selected default group. |
-| `waha/config/forward_topics/value` | JSON | List of MQTT topic filters to forward. |
-| `waha/config/templates/value` | JSON | Message templates for forwarded topics. |
-| `waha/result/last` | JSON | Last successful send result. |
-| `waha/error/last` | JSON | Last command error. |
+```text
+waha/status/online
+waha/status/last_update
+waha/status/error
+waha/session/name
+waha/session/status
+waha/session/account
+waha/groups/list
+waha/groups/g001/subject
+waha/groups/g001/chatId_masked
+waha/groups/g001/selected
+waha/groups/g001/bot_listen
+waha/config/default_group/value
+waha/config/default_group/subject
+waha/config/bot/enabled
+waha/config/bot/wake_word/value
+waha/config/bot/listen_group/value
+waha/config/bot/listen_group/subject
+waha/config/forward_topics/value
+waha/config/templates/value
+waha/result/last
+waha/error/last
+waha/bot/last_command
+waha/bot/last_response
+waha/bot/last_sender
+waha/bot/last_chat
+```
 
-## Command topics
+## Commands
 
-### Refresh WAHA data
+Refresh WAHA data:
 
 ```text
 Topic:   waha/cmd/refresh
 Payload: 1
 ```
 
-### Set default group
-
-Payload may be a group alias, subject, or real chat ID.
+Set default target group for outgoing messages:
 
 ```text
 Topic:   waha/config/default_group/set
 Payload: g001
 ```
 
-### Send to default group
+Set the WhatsApp group where Mobert listens for commands:
+
+```text
+Topic:   waha/config/bot/listen_group/set
+Payload: g001
+```
+
+Enable or disable Mobert:
+
+```text
+Topic:   waha/config/bot/enabled/set
+Payload: true
+```
+
+Set the wake word:
+
+```text
+Topic:   waha/config/bot/wake_word/set
+Payload: Mobert
+```
+
+Send to default group:
 
 ```text
 Topic:   waha/send
 Payload: Test message
 ```
 
-### Send to selected group
+Send to selected group:
 
 ```text
 Topic:   waha/send
 Payload: {"group":"g001","text":"Test message"}
 ```
 
-### Configure forwarded OpenMower topics
+Set forwarded OpenMower topics:
 
 ```text
 Topic:   waha/config/forward_topics/set
 Payload: ["openmower/alerts/#", "openmower/status/error"]
 ```
 
-### Configure templates
+Set templates:
 
 ```text
 Topic:   waha/config/templates/set
 Payload: {"openmower/alerts/#":"OpenMower Alarm: {payload}"}
 ```
 
-## Template placeholders
+## WhatsApp bot commands
 
-Available generic placeholders:
-
-```text
-{topic}
-{payload}
-```
-
-If the MQTT payload is JSON and contains object fields, those fields can also be used directly. Example:
-
-```json
-{"percent": 18}
-```
-
-Template:
+The bot reacts only in the MQTT-configured listen group.
 
 ```text
-OpenMower Akku: {percent} %
+Mobert ?
+Mobert status
+Mobert gruppen
+Mobert ziel
+Mobert ziel g001
+Mobert lauschen
+Mobert lauschen g001
+Mobert topics
+Mobert test
 ```

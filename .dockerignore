@@ -1,11 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
 .env
 *.env
 config.json
 data/
 controller_data/
 waha_sessions/
-__pycache__/
-*.pyc
-.venv/
+.git/
 .vscode/
-.DS_Store

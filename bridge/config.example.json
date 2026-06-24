@@ -5,5 +5,9 @@
     "openmower/alerts/#": "OpenMower Alarm: {payload}",
     "openmower/status/error": "OpenMower Fehler: {payload}"
   },
-  "group_aliases": {}
+  "bot": {
+    "enabled": true,
+    "wake_word": "Mobert",
+    "listen_group": ""
+  }
 }

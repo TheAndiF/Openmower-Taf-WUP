@@ -1,6 +1,27 @@
-﻿services:
+services:
+  waha:
+    image: devlikeapro/waha:arm
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "${WAHA_EXTERNAL_PORT:-9629}:3000"
+    environment:
+      - TZ=Europe/Berlin
+      - WAHA_DASHBOARD_ENABLED=${WAHA_DASHBOARD_ENABLED:-true}
+      - WAHA_DASHBOARD_USERNAME=${WAHA_DASHBOARD_USERNAME:-waha}
+      - WAHA_DASHBOARD_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      # WAHA sends incoming WhatsApp messages to the controller.
+      # The controller then checks whether the chat is the MQTT-configured bot listen group.
+      - WHATSAPP_HOOK_URL=http://waha_mqtt_controller:8080/webhook
+      - WHATSAPP_HOOK_EVENTS=message
+    volumes:
+      - ./waha_sessions:/app/.sessions
+    networks:
+      - openmower_default
+
   waha_mqtt_controller:
-    image: ghcr.io/DEIN_GITHUB_NAME/openmower-taf-wup:latest
+    image: ghcr.io/theandif/openmower-taf-wup:latest
     container_name: waha_mqtt_controller
     restart: unless-stopped
     environment:
@@ -10,9 +31,12 @@
       - WAHA_URL=${WAHA_URL:-http://waha:3000}
       - WAHA_API_KEY=${WAHA_API_KEY}
       - CONTROLLER_REFRESH_SECONDS=${CONTROLLER_REFRESH_SECONDS:-60}
+      - BOT_HTTP_PORT=${BOT_HTTP_PORT:-8080}
       - DATA_DIR=/data
     volumes:
       - ./controller_data:/data
+    depends_on:
+      - waha
     networks:
       - openmower_default
 

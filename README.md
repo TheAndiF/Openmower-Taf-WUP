@@ -6,100 +6,62 @@ WAHA MQTT Controller for OpenMower / TAF / WhatsApp push notifications.
 
 This repository contains a Docker-based MQTT controller for connecting an OpenMower Mosquitto broker with the WAHA WhatsApp HTTP API.
 
-The controller exposes WAHA sessions and WhatsApp groups as retained MQTT topics and allows WhatsApp messages to be sent and configured via MQTT.
+The controller exposes WAHA status, sessions and WhatsApp groups as retained MQTT topics. It can send WhatsApp messages through MQTT and includes the optional **Mobert** WhatsApp bot.
 
 ## Main features
 
-- Publish WAHA online/status information to MQTT
-- Publish all WAHA sessions and the active session
-- Publish WhatsApp groups with readable `groupMetadata.subject`
-- Mask real WhatsApp chat IDs in MQTT manager topics
-- Select a default WhatsApp group via MQTT
-- Send manual WhatsApp messages via MQTT
-- Configure which MQTT topics are forwarded to WhatsApp
-- Configure message templates for forwarded topics
-- Store runtime configuration persistently in `/data/config.json`
-- Build multi-platform Docker images through GitHub Actions for `linux/amd64` and `linux/arm64`
+- Publish WAHA server/session status to MQTT.
+- Publish WhatsApp groups using masked aliases such as `g001`, `g002`, ...
+- Read group names from `groupMetadata.subject`.
+- Select a default WhatsApp target group through MQTT.
+- Configure the Mobert listening group through MQTT.
+- Reply to `Mobert ?` and other commands only in the configured listening group.
+- Forward selected OpenMower MQTT topics to WhatsApp.
+- Store runtime configuration persistently under `/data/config.json`.
+- Build multi-platform Docker images through GitHub Actions.
 
-## MQTT base topic
-
-Default base topic:
-
-```text
-waha
-```
-
-## Important retained topics
+## Important MQTT topics
 
 ```text
 waha/status/online
-waha/status/last_update
-waha/status/error
-waha/sessions/list
 waha/session/name
 waha/session/status
-waha/session/account_masked
+waha/session/account
 waha/groups/list
 waha/groups/g001/subject
 waha/groups/g001/chatId_masked
 waha/groups/g001/selected
+waha/groups/g001/bot_listen
+waha/config/default_group/set
 waha/config/default_group/value
-waha/config/default_group/subject
-waha/config/forward_topics/value
-waha/config/templates/value
+waha/config/bot/enabled/set
+waha/config/bot/wake_word/set
+waha/config/bot/listen_group/set
+waha/config/bot/listen_group/value
+waha/send
 waha/result/last
 waha/error/last
+waha/bot/last_command
+waha/bot/last_response
 ```
 
-## Important command topics
+## Mobert bot
 
-Refresh WAHA status and group list:
+The bot reacts only in the configured WhatsApp group.
+
+Example setup:
+
+```bash
+mosquitto_pub -h Mosquitto -t waha/config/bot/listen_group/set -m g001
+mosquitto_pub -h Mosquitto -t waha/config/bot/wake_word/set -m Mobert
+mosquitto_pub -h Mosquitto -t waha/config/bot/enabled/set -m true
+```
+
+Then write this inside the selected WhatsApp group:
 
 ```text
-Topic:   waha/cmd/refresh
-Payload: 1
+Mobert ?
 ```
-
-Select the default group:
-
-```text
-Topic:   waha/config/default_group/set
-Payload: g001
-```
-
-Send to the default group:
-
-```text
-Topic:   waha/send
-Payload: Test message
-```
-
-Send to a selected group:
-
-```text
-Topic:   waha/send
-Payload: {"group":"g001","text":"Test message"}
-```
-
-Configure forwarded MQTT topics:
-
-```text
-Topic:   waha/config/forward_topics/set
-Payload: ["openmower/alerts/#", "openmower/status/error"]
-```
-
-Configure message templates:
-
-```text
-Topic:   waha/config/templates/set
-Payload: {"openmower/alerts/#":"OpenMower Alarm: {payload}"}
-```
-
-## OpenMower / Dockge deployment
-
-The controller is designed to run in the separate `whatsapp` stack next to the existing `waha` container and to join the external Docker network `openmower_default`.
-
-Use `compose.example.yaml` as reference. Replace `DEIN_GITHUB_NAME` with your GitHub account or organization name.
 
 ## Security
 

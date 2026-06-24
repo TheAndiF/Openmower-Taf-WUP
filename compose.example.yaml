@@ -1,4 +1,4 @@
-services:
+﻿services:
   waha_mqtt_controller:
     image: ghcr.io/DEIN_GITHUB_NAME/openmower-taf-wup:latest
     container_name: waha_mqtt_controller

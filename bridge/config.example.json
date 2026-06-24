@@ -1,9 +1,18 @@
 {
+  "waha": {
+    "enabled": true
+  },
   "default_group": "",
   "forward_topics": [],
   "templates": {
     "openmower/alerts/#": "OpenMower Alarm: {payload}",
     "openmower/status/error": "OpenMower Fehler: {payload}"
+  },
+  "messages": {
+    "history": {
+      "enabled": true,
+      "limit": 10
+    }
   },
   "bot": {
     "enabled": true,

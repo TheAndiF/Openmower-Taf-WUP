@@ -1,21 +1,6 @@
-BL_Add Mobert webhook bot listen group
-Date: 2026-06-24
-Summary:
-- Added an internal WAHA webhook endpoint for incoming WhatsApp messages.
-- Added Mobert command handling with a MQTT-configurable listening group.
-- Added MQTT settings for bot enabled state, wake word and listen group.
-- Updated deployment and MQTT documentation for the Mobert bot workflow.
-Changed files:
-- README.md
-- .env.example
-- .dockerignore
-- compose.example.yaml
-- bridge/Dockerfile
-- bridge/requirements.txt
-- bridge/controller.py
-- bridge/config.example.json
-- docs/mqtt-topics.md
-- docs/openmower-deploy.md
-- CHANGELOG.md
-- COMMIT_MESSAGE.txt
-- scripts/waha-groups-test.py
+v0.3.1 switchable WAHA provider
+
+- add messenger/waha enable state and JSON snapshot
+- add session and persistent set topics for WAHA
+- block WAHA queries, group refresh and sending when disabled
+- update docs, README and example config

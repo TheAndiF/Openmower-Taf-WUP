@@ -3,116 +3,335 @@
 Default base topic:
 
 ```text
-waha
+messenger
 ```
 
-## Published retained status topics
+The public namespace is provider-aware. The current provider is WAHA:
 
 ```text
-waha/status/online
-waha/status/last_update
-waha/status/error
-waha/session/name
-waha/session/status
-waha/session/account
-waha/groups/list
-waha/groups/g001/subject
-waha/groups/g001/chatId_masked
-waha/groups/g001/selected
-waha/groups/g001/bot_listen
-waha/config/default_group/value
-waha/config/default_group/subject
-waha/config/bot/enabled
-waha/config/bot/wake_word/value
-waha/config/bot/listen_group/value
-waha/config/bot/listen_group/subject
-waha/config/forward_topics/value
-waha/config/templates/value
-waha/result/last
-waha/error/last
-waha/bot/last_command
-waha/bot/last_response
-waha/bot/last_sender
-waha/bot/last_chat
+messenger/status/#       general Messenger status
+messenger/waha/#         WAHA-/WhatsApp-specific data and commands
+messenger/bot/#          Mobert bot, provider-neutral
 ```
 
-## Commands
-
-Refresh WAHA data:
+## Complete topic tree
 
 ```text
-Topic:   waha/cmd/refresh
-Payload: 1
+messenger/
+├── status/
+│   ├── json
+│   ├── online
+│   ├── text
+│   ├── provider
+│   └── protocol
+│
+├── waha/
+│   ├── json
+│   ├── enabled
+│   ├── text
+│   ├── set/
+│   │   ├── session/
+│   │   │   └── json
+│   │   └── persistent/
+│   │       └── json
+│   ├── validation/
+│   │   └── json
+│   │
+│   ├── session/
+│   │   ├── json
+│   │   ├── status
+│   │   ├── text
+│   │   ├── ready
+│   │   ├── can_send
+│   │   ├── can_read_groups
+│   │   └── last_error
+│   │
+│   ├── groups/
+│   │   ├── json
+│   │   ├── count
+│   │   ├── default/
+│   │   │   ├── alias
+│   │   │   └── name
+│   │   ├── set/
+│   │   │   ├── renew/
+│   │   │   │   └── json
+│   │   │   └── json
+│   │   └── validation/
+│   │       └── json
+│   │
+│   ├── contacts/
+│   │   ├── json
+│   │   ├── count
+│   │   ├── status/
+│   │   │   └── json
+│   │   ├── set/
+│   │   │   ├── renew/
+│   │   │   │   └── json
+│   │   │   └── json
+│   │   └── validation/
+│   │       └── json
+│   │
+│   ├── messages/
+│   │   ├── json
+│   │   ├── count
+│   │   ├── history/
+│   │   │   ├── enabled
+│   │   │   ├── limit
+│   │   │   ├── set/
+│   │   │   │   ├── session/
+│   │   │   │   │   └── json
+│   │   │   │   └── persistent/
+│   │   │   │       └── json
+│   │   │   └── validation/
+│   │   │       └── json
+│   │   ├── in/
+│   │   │   └── json
+│   │   └── out/
+│   │       ├── set/
+│   │       │   └── json
+│   │       └── validation/
+│   │           └── json
+│   │
+│   ├── actions/
+│   │   └── json
+│   │
+│   └── action
+│
+└── bot/
+    ├── json
+    ├── enabled
+    ├── text
+    ├── listener/
+    │   ├── json
+    │   ├── listening
+    │   ├── wake_word
+    │   ├── text
+    │   ├── provider
+    │   └── group/
+    │       ├── alias
+    │       └── name
+    ├── commands/
+    │   ├── json
+    │   ├── xml
+    │   ├── count
+    │   ├── version
+    │   ├── source
+    │   ├── set/
+    │   │   └── renew/
+    │   │       └── json
+    │   └── validation/
+    │       └── json
+    ├── set/
+    │   ├── session/
+    │   │   └── json
+    │   └── persistent/
+    │       └── json
+    ├── validation/
+    │   └── json
+    └── events/
+        └── json
 ```
 
-Set default target group for outgoing messages:
+## Conventions
 
 ```text
-Topic:   waha/config/default_group/set
-Payload: g001
+*/json                         main JSON snapshot
+*/set/renew/json               refresh current data from the backend
+*/set/json                     set provider-specific state
+*/set/session/json             set live/session state
+*/set/persistent/json          persist a setting
+*/validation/json              response for set/renew operations
 ```
 
-Set the WhatsApp group where Mobert listens for commands:
+JSON snapshots use a `d` wrapper.
+
+## General status
 
 ```text
-Topic:   waha/config/bot/listen_group/set
-Payload: g001
+messenger/status/json
+messenger/status/online
+messenger/status/text
+messenger/status/provider
+messenger/status/protocol
 ```
 
-Enable or disable Mobert:
+Example:
 
-```text
-Topic:   waha/config/bot/enabled/set
-Payload: true
+```json
+{
+  "d": {
+    "online": true,
+    "text": "waha WORKING: Mobert lauscht in g014 (OpenMower).",
+    "provider": "waha",
+    "protocol": "whatsapp"
+  }
+}
 ```
 
-Set the wake word:
+
+## WAHA provider
 
 ```text
-Topic:   waha/config/bot/wake_word/set
-Payload: Mobert
+messenger/waha/json
+messenger/waha/enabled
+messenger/waha/text
+messenger/waha/set/session/json
+messenger/waha/set/persistent/json
+messenger/waha/validation/json
 ```
 
-Send to default group:
+`messenger/waha/json` is the retained provider snapshot. `enabled` controls whether the controller actively uses WAHA. When disabled, the controller does not query WAHA, does not refresh groups, does not send messages and the Bot listener cannot become active.
 
-```text
-Topic:   waha/send
-Payload: Test message
+Enable WAHA live:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"enabled":true}'
 ```
 
-Send to selected group:
+Disable WAHA persistently:
 
-```text
-Topic:   waha/send
-Payload: {"group":"g001","text":"Test message"}
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"enabled":false}'
 ```
 
-Set forwarded OpenMower topics:
+Validation is published to:
 
 ```text
-Topic:   waha/config/forward_topics/set
-Payload: ["openmower/alerts/#", "openmower/status/error"]
+messenger/waha/validation/json
 ```
 
-Set templates:
+## WAHA session
 
 ```text
-Topic:   waha/config/templates/set
-Payload: {"openmower/alerts/#":"OpenMower Alarm: {payload}"}
+messenger/waha/session/json
 ```
 
-## WhatsApp bot commands
-
-The bot reacts only in the MQTT-configured listen group.
+Contains the WAHA/WhatsApp session status. Mirror topics exist for MQTT Explorer:
 
 ```text
-Mobert ?
-Mobert status
-Mobert gruppen
-Mobert ziel
-Mobert ziel g001
-Mobert lauschen
-Mobert lauschen g001
-Mobert topics
-Mobert test
+messenger/waha/session/status
+messenger/waha/session/text
+messenger/waha/session/ready
+messenger/waha/session/can_send
+messenger/waha/session/can_read_groups
+messenger/waha/session/last_error
+```
+
+## Groups
+
+```text
+messenger/waha/groups/json
+```
+
+Contains the full group snapshot, including the group list and default target group.
+
+Refresh groups:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/groups/set/renew/json -m '{}'
+```
+
+Set default group:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/groups/set/json -m '{"default_group_alias":"g014"}'
+```
+
+Validation is published to:
+
+```text
+messenger/waha/groups/validation/json
+```
+
+## Messages and history
+
+```text
+messenger/waha/messages/json
+```
+
+Retained snapshot of the last messages in both directions. Default history limit: `10`.
+
+```text
+messenger/waha/messages/in/json
+```
+
+Live event for each incoming WhatsApp message. Not retained.
+
+```text
+messenger/waha/messages/out/set/json
+```
+
+Send a message.
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/messages/out/set/json -m '{"request_id":"req-1","target":{"alias":"g014"},"text":"Testnachricht"}'
+```
+
+Configure message history live:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/messages/history/set/session/json -m '{"enabled":true,"limit":10}'
+```
+
+Configure message history persistently:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/messages/history/set/persistent/json -m '{"enabled":true,"limit":20}'
+```
+
+## Bot listener
+
+```text
+messenger/bot/listener/json
+```
+
+Contains whether Mobert is really listening, the wake word, the provider and the selected listening group.
+
+Mirror topics:
+
+```text
+messenger/bot/listener/listening
+messenger/bot/listener/wake_word
+messenger/bot/listener/text
+messenger/bot/listener/provider
+messenger/bot/listener/group/alias
+messenger/bot/listener/group/name
+```
+
+Configure Mobert live:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/set/session/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
+```
+
+Configure Mobert persistently:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/set/persistent/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
+```
+
+## Bot commands XML
+
+The command file is loaded from `/data/bot_commands.xml` and exposed as:
+
+```text
+messenger/bot/commands/xml
+messenger/bot/commands/json
+messenger/bot/commands/count
+messenger/bot/commands/version
+messenger/bot/commands/source
+messenger/bot/commands/validation/json
+```
+
+Reload XML commands:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
+```
+
+The WhatsApp command syntax is intentionally colon-based:
+
+```text
+Mobert: Status
+Mobert: ?
 ```

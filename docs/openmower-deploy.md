@@ -28,47 +28,88 @@ docker logs waha_mqtt_controller --tail=100
 ## 4. Check MQTT topics
 
 ```bash
-docker exec -it Mosquitto mosquitto_sub -h localhost -t 'waha/#' -v
+docker exec -it Mosquitto mosquitto_sub -h localhost -t 'messenger/#' -v
 ```
 
-## 5. Configure default target group
+## 5. Refresh groups
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub \
   -h localhost \
-  -t 'waha/config/default_group/set' \
-  -m 'g001'
+  -t 'messenger/waha/groups/set/renew/json' \
+  -m '{}'
 ```
 
-## 6. Configure the Mobert listen group
+## 6. Configure default target group
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub \
   -h localhost \
-  -t 'waha/config/bot/listen_group/set' \
-  -m 'g001'
+  -t 'messenger/waha/groups/set/json' \
+  -m '{"default_group_alias":"g001"}'
 ```
 
-## 7. Enable Mobert and set the wake word
+## 7. Configure the Mobert listen group
+
+Live until restart:
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub \
   -h localhost \
-  -t 'waha/config/bot/enabled/set' \
-  -m 'true'
-
- docker exec -it Mosquitto mosquitto_pub \
-  -h localhost \
-  -t 'waha/config/bot/wake_word/set' \
-  -m 'Mobert'
+  -t 'messenger/bot/set/session/json' \
+  -m '{"listen_group_alias":"g001"}'
 ```
 
-## 8. Test in WhatsApp
+Persistent:
+
+```bash
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'messenger/bot/set/persistent/json' \
+  -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g001"}'
+```
+
+## 8. Configure message history
+
+The default is the last 10 messages. To set it explicitly:
+
+```bash
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'messenger/waha/messages/history/set/persistent/json' \
+  -m '{"enabled":true,"limit":10}'
+```
+
+## 9. Reload command XML
+
+```bash
+docker exec -it Mosquitto mosquitto_pub \
+  -h localhost \
+  -t 'messenger/bot/commands/set/renew/json' \
+  -m '{}'
+```
+
+## 10. Test in WhatsApp
 
 Write this inside the configured listen group:
 
 ```text
-Mobert ?
+Mobert: ?
 ```
 
-The controller should reply with the available commands.
+The colon is required. The controller should reply with the available commands from `/data/bot_commands.xml`.
+
+## Useful status topics
+
+```text
+messenger/status/text
+messenger/waha/session/text
+messenger/waha/groups/count
+messenger/waha/groups/default/alias
+messenger/waha/groups/default/name
+messenger/bot/listener/listening
+messenger/bot/listener/group/alias
+messenger/bot/listener/group/name
+messenger/bot/commands/count
+messenger/waha/messages/count
+```

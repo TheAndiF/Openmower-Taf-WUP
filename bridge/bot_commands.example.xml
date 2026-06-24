@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mobertCommands version="0.1" language="de">
+  <meta>
+    <name>Mobert OpenMower Befehle</name>
+    <description>Befehlsdefinition fuer den Mobert WhatsApp Bot</description>
+  </meta>
+
+  <command id="help" enabled="true" category="system">
+    <trigger>?</trigger>
+    <example>Mobert: ?</example>
+    <description>Hilfe anzeigen</description>
+    <action type="local_reply">
+      <response>{help}</response>
+    </action>
+  </command>
+
+  <command id="status" enabled="true" category="status">
+    <trigger>Status</trigger>
+    <example>Mobert: Status</example>
+    <description>Status von Mobert und OpenMower anzeigen</description>
+    <action type="local_status">
+      <responseTemplate>status_short</responseTemplate>
+    </action>
+  </command>
+
+  <command id="groups" enabled="true" category="messenger">
+    <trigger>Gruppen</trigger>
+    <example>Mobert: Gruppen</example>
+    <description>Bekannte WhatsApp-Gruppen anzeigen</description>
+    <action type="local_groups" />
+  </command>
+
+  <command id="target" enabled="true" category="messenger">
+    <trigger>Ziel</trigger>
+    <example>Mobert: Ziel</example>
+    <description>Standard-Zielgruppe anzeigen</description>
+    <action type="local_default_group" />
+  </command>
+
+  <command id="set_listener_group" enabled="true" category="bot">
+    <trigger>Lauschen {group}</trigger>
+    <example>Mobert: Lauschen g014</example>
+    <description>Bot-Lauschgruppe setzen</description>
+    <parameters>
+      <parameter name="group" type="string" required="true" />
+    </parameters>
+    <action type="local_set_listener_group" />
+  </command>
+
+  <command id="start_mowing" enabled="true" category="mower">
+    <trigger>Start</trigger>
+    <example>Mobert: Start</example>
+    <description>Maehbetrieb starten</description>
+    <action type="mqtt_publish">
+      <mqttPublish topic="action" qos="1" retain="false">
+        <payload>mower_logic:idle/start_mowing</payload>
+      </mqttPublish>
+      <immediateConfirmation>Start-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
+    </action>
+  </command>
+
+  <command id="pause_mowing" enabled="true" category="mower">
+    <trigger>Pause</trigger>
+    <example>Mobert: Pause</example>
+    <description>Laufenden Maehbetrieb pausieren</description>
+    <action type="mqtt_publish">
+      <mqttPublish topic="action" qos="1" retain="false">
+        <payload>mower_logic:mowing/pause</payload>
+      </mqttPublish>
+      <immediateConfirmation>Pause-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
+    </action>
+  </command>
+
+  <command id="dock" enabled="false" category="mower">
+    <trigger>Dock</trigger>
+    <example>Mobert: Dock</example>
+    <description>Zur Dockingstation fahren</description>
+    <action type="mqtt_publish">
+      <mqttPublish topic="action" qos="1" retain="false">
+        <payload>TODO_OPENMOWER_DOCK_ACTION</payload>
+      </mqttPublish>
+      <immediateConfirmation>Dock-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
+    </action>
+  </command>
+
+  <command id="start_area" enabled="false" category="area">
+    <trigger>Start {area}</trigger>
+    <example>Mobert: Start 3</example>
+    <description>Bestimmte Flaeche starten</description>
+    <parameters>
+      <parameter name="area" type="integer" required="true" min="1" />
+    </parameters>
+    <action type="mqtt_publish">
+      <mqttPublish topic="openmower/cmd/start_area" qos="1" retain="false">
+        <payload>{"area":"{area}"}</payload>
+      </mqttPublish>
+      <immediateConfirmation>Start fuer Flaeche {area} wurde an MQTT gesendet.</immediateConfirmation>
+      <waitForMqttConfirmation enabled="true" timeoutSeconds="10">
+        <topic>openmower/cmd/start_area/result</topic>
+        <successResponse>Start bestaetigt: {payload}</successResponse>
+        <timeoutResponse>Gesendet, aber keine MQTT-Bestaetigung erhalten.</timeoutResponse>
+        <errorResponse>Start konnte nicht bestaetigt werden: {payload}</errorResponse>
+      </waitForMqttConfirmation>
+    </action>
+  </command>
+
+  <command id="schedule_on" enabled="false" category="schedule">
+    <trigger>Zeitplan ein</trigger>
+    <example>Mobert: Zeitplan ein</example>
+    <description>Zeitplan aktivieren</description>
+    <action type="mqtt_publish">
+      <mqttPublish topic="timetable/set/suspension/json" qos="1" retain="false">
+        <payload>{"AutoMowSuspension":0}</payload>
+      </mqttPublish>
+      <immediateConfirmation>Zeitplan wurde aktiviert.</immediateConfirmation>
+    </action>
+  </command>
+
+  <command id="schedule_off" enabled="false" category="schedule">
+    <trigger>Zeitplan aus</trigger>
+    <example>Mobert: Zeitplan aus</example>
+    <description>Zeitplan deaktivieren</description>
+    <action type="mqtt_publish">
+      <mqttPublish topic="timetable/set/suspension/json" qos="1" retain="false">
+        <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>
+      </mqttPublish>
+      <immediateConfirmation>Zeitplan wurde deaktiviert.</immediateConfirmation>
+    </action>
+  </command>
+</mobertCommands>

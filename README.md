@@ -34,10 +34,11 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 ```text
 mobertBotConfig
 ├── modules
-│   ├── inputModule  whatsapp_watchdog
-│   ├── inputModule  mqtt_watchdog
-│   ├── outputModule whatsapp_output
-│   └── outputModule mqtt_output
+│   ├── whatsappModule whatsapp
+│   ├── inputModule    whatsapp_watchdog -> moduleRef whatsapp
+│   ├── inputModule    mqtt_watchdog
+│   ├── outputModule   whatsapp_output -> moduleRef whatsapp
+│   └── outputModule   mqtt_output
 └── flows
     └── flow
         ├── head
@@ -49,7 +50,7 @@ mobertBotConfig
 
 There is only one central watchdog/output instance per module type. The XML does not start separate listeners for every command. Instead, the active `flow` entries decide which WhatsApp commands and MQTT topics are relevant.
 
-Legacy `mobertCommands` XML files are still accepted, but the supplied example file uses the new flow structure. Existing MQTT configuration topics remain available. For example, `messenger/bot/set/session/json` can still set `enabled`, `wake_word` and `listen_group_alias`; these values override the XML defaults until the controller is restarted or the persistent config is changed.
+Legacy `mobertCommands` XML files are still accepted, but the supplied example file uses the new flow structure. Existing MQTT configuration topics remain available. For example, `messenger/bot/set/session/json` can still set `enabled`, `wake_word` and `listen_group_alias`; `messenger/waha/set/session/json` can also set `session`. These values override the XML defaults until the controller is restarted or the persistent config is changed.
 
 The bot XML itself can be replaced through MQTT:
 
@@ -234,18 +235,20 @@ For the default OpenMower stack the credential hint is:
 
 ## Common commands
 
-Enable or disable WAHA live:
+Enable or disable WAHA live, or select the WAHA session:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"enabled":true}'
 mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"enabled":false}'
+mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"session":"Wasserleberweg"}'
 ```
 
-Enable or disable WAHA persistently:
+Enable or disable WAHA persistently, or persist the selected WAHA session:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"enabled":true}'
 mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"enabled":false}'
+mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"session":"Wasserleberweg"}'
 ```
 
 Refresh the WAHA group list:

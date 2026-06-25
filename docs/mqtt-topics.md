@@ -202,12 +202,14 @@ Enable WAHA live:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"enabled":true}'
+mosquitto_pub -h Mosquitto -t messenger/waha/set/session/json -m '{"session":"Wasserleberweg"}'
 ```
 
 Disable WAHA persistently:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"enabled":false}'
+mosquitto_pub -h Mosquitto -t messenger/waha/set/persistent/json -m '{"session":"Wasserleberweg"}'
 ```
 
 Validation is published to:
@@ -357,7 +359,8 @@ Mobert: ?
 `messenger/bot/commands/#` exposes the loaded XML and the parsed flow command list. The controller accepts both the legacy `<mobertCommands>` format and the new `<mobertBotConfig>` flow format. The new format defines central modules and flow steps:
 
 ```text
-modules: whatsapp_watchdog, mqtt_watchdog, whatsapp_output, mqtt_output
+modules: whatsapp, whatsapp_watchdog, mqtt_watchdog, whatsapp_output, mqtt_output
+whatsapp_watchdog and whatsapp_output reference the central whatsappModule.
 flow step: input -> processing -> output
 ```
 

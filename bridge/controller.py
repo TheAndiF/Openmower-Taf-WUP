@@ -374,10 +374,18 @@ def fetch_session() -> Dict[str, Any]:
         }
     sessions = unwrap_list(waha_get("/api/sessions"))
     selected = None
-    for session in sessions:
-        if str(session.get("status", "")).upper() == "WORKING":
-            selected = session
-            break
+    preferred_name = effective_whatsapp_session()
+    if preferred_name:
+        for session in sessions:
+            name = str(session.get("name") or session.get("session") or session.get("id") or "")
+            if name == preferred_name:
+                selected = session
+                break
+    if selected is None:
+        for session in sessions:
+            if str(session.get("status", "")).upper() == "WORKING":
+                selected = session
+                break
     if selected is None and sessions:
         selected = sessions[0]
     if selected is None:
@@ -584,8 +592,55 @@ def ensure_default_bot_commands_file() -> None:
 
 
 def default_bot_commands_xml() -> str:
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<mobertBotConfig version="0.3" language="de">\n\n  <head>\n    <name>Mobert OpenMower Flow Configuration</name>\n    <description>XML-gesteuerte Flow-Konfiguration mit zentralen Watchdog- und Output-Modulen.</description>\n    <enabled>true</enabled>\n  </head>\n\n  <modules>\n\n    <inputModule id="whatsapp_watchdog">\n      <enabled>true</enabled>\n      <session>default</session>\n      <listenerGroup>g014</listenerGroup>\n\n      <wakeWord>\n        <text>Mobert</text>\n        <required>true</required>\n        <syntax>colon</syntax>\n        <caseSensitive>false</caseSensitive>\n      </wakeWord>\n    </inputModule>\n\n    <outputModule id="whatsapp_output">\n      <enabled>true</enabled>\n      <session>default</session>\n      <defaultGroup>g014</defaultGroup>\n    </outputModule>\n\n    <inputModule id="mqtt_watchdog">\n      <enabled>true</enabled>\n      <subscribeMode>enabled_flows</subscribeMode>\n    </inputModule>\n\n    <outputModule id="mqtt_output">\n      <enabled>true</enabled>\n    </outputModule>\n\n  </modules>\n\n  <flows>\n\n    <flow id="help">\n      <head>\n        <name>Help</name>\n        <description>Hilfe anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>?</command>\n          </expect>\n        </input>\n\n        <processing mode="local_reply">\n          <template>{help}</template>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="status">\n      <head>\n        <name>Status</name>\n        <description>Status von Mobert und OpenMower anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Status</command>\n          </expect>\n        </input>\n\n        <processing mode="local_status">\n          <responseTemplate>status_short</responseTemplate>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="groups">\n      <head>\n        <name>Groups</name>\n        <description>Bekannte WhatsApp-Gruppen anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Gruppen</command>\n          </expect>\n        </input>\n\n        <processing mode="local_groups" />\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="target">\n      <head>\n        <name>Target</name>\n        <description>Standard-Zielgruppe anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Ziel</command>\n          </expect>\n        </input>\n\n        <processing mode="local_default_group" />\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="set_listener_group">\n      <head>\n        <name>Set listener group</name>\n        <description>Bot-Lauschgruppe setzen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Lauschen {group}</command>\n          </expect>\n          <parameters>\n            <parameter name="group" type="string" required="true" />\n          </parameters>\n        </input>\n\n        <processing mode="set_module_property">\n          <moduleRef>whatsapp_watchdog</moduleRef>\n          <property>listenerGroup</property>\n          <value>{group}</value>\n          <persist>true</persist>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="start_mowing">\n      <head>\n        <name>Start mowing</name>\n        <description>Maehbetrieb starten.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Start</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>mower_logic:idle/start_mowing</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Start-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="pause_mowing">\n      <head>\n        <name>Pause mowing</name>\n        <description>Laufenden Maehbetrieb pausieren.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Pause</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>mower_logic:mowing/pause</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Pause-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="dock">\n      <head>\n        <name>Dock</name>\n        <description>Zur Dockingstation fahren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Dock</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>TODO_OPENMOWER_DOCK_ACTION</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Dock-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="start_area">\n      <head>\n        <name>Start area</name>\n        <description>Bestimmte Flaeche starten und MQTT-Bestaetigung abwarten.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Start {area}</command>\n          </expect>\n          <parameters>\n            <parameter name="area" type="integer" required="true" min="1" />\n          </parameters>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>openmower/cmd/start_area</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"area":"{area}"}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Start fuer Flaeche {area} wurde an MQTT gesendet.</message>\n        </output>\n\n        <nextStep>wait_for_mqtt_confirmation</nextStep>\n      </step>\n\n      <step id="wait_for_mqtt_confirmation">\n        <input module="mqtt_watchdog" type="confirmation">\n          <timeoutSeconds>10</timeoutSeconds>\n          <expect>\n            <topic>openmower/cmd/start_area/result</topic>\n            <payloadNotEmpty>true</payloadNotEmpty>\n          </expect>\n        </input>\n\n        <processing mode="confirmation_result">\n          <successWhen>\n            <default>true</default>\n          </successWhen>\n          <errorWhen>\n            <payloadContains>error</payloadContains>\n          </errorWhen>\n        </processing>\n\n        <output module="whatsapp_output" type="send" result="success">\n          <target>{replyTarget}</target>\n          <message>Start fuer Flaeche {area} bestaetigt: {payload}</message>\n        </output>\n\n        <output module="whatsapp_output" type="send" result="timeout">\n          <target>{replyTarget}</target>\n          <message>Gesendet, aber keine MQTT-Bestaetigung erhalten.</message>\n        </output>\n\n        <output module="whatsapp_output" type="send" result="error">\n          <target>{replyTarget}</target>\n          <message>Start konnte nicht bestaetigt werden: {payload}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="schedule_on">\n      <head>\n        <name>Schedule on</name>\n        <description>Zeitplan aktivieren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Zeitplan ein</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>timetable/set/suspension/json</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"AutoMowSuspension":0}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Zeitplan wurde aktiviert.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="schedule_off">\n      <head>\n        <name>Schedule off</name>\n        <description>Zeitplan deaktivieren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Zeitplan aus</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>timetable/set/suspension/json</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Zeitplan wurde deaktiviert.</message>\n        </output>\n      </step>\n    </flow>\n\n  </flows>\n\n</mobertBotConfig>\n'
+    if DEFAULT_BOT_COMMANDS_FILE.exists():
+        return DEFAULT_BOT_COMMANDS_FILE.read_text(encoding="utf-8")
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<mobertBotConfig version="0.4" language="de">
 
+  <head>
+    <name>Mobert OpenMower Flow Configuration</name>
+    <description>Fallback-Konfiguration mit zentralem WhatsApp-Modul.</description>
+    <enabled>true</enabled>
+  </head>
+
+  <modules>
+    <whatsappModule id="whatsapp">
+      <enabled>true</enabled>
+      <session>
+        <default>default</default>
+      </session>
+      <groups>
+        <defaultGroup>g014</defaultGroup>
+        <listenerGroup>g014</listenerGroup>
+      </groups>
+      <wakeWord>
+        <text>Mobert</text>
+        <required>true</required>
+        <syntax>colon</syntax>
+        <caseSensitive>false</caseSensitive>
+      </wakeWord>
+    </whatsappModule>
+    <inputModule id="whatsapp_watchdog">
+      <enabled>true</enabled>
+      <moduleRef>whatsapp</moduleRef>
+    </inputModule>
+    <outputModule id="whatsapp_output">
+      <enabled>true</enabled>
+      <moduleRef>whatsapp</moduleRef>
+    </outputModule>
+    <inputModule id="mqtt_watchdog">
+      <enabled>true</enabled>
+      <subscribeMode>enabled_flows</subscribeMode>
+    </inputModule>
+    <outputModule id="mqtt_output">
+      <enabled>true</enabled>
+    </outputModule>
+  </modules>
+
+  <flows />
+
+</mobertBotConfig>
+"""
 
 def xml_child_text(element: Optional[ET.Element], path: str, default: str = "") -> str:
     if element is None:
@@ -709,29 +764,75 @@ def parse_step(node: ET.Element) -> Dict[str, Any]:
     return step
 
 
+def parse_wake_word(node: Optional[ET.Element]) -> Dict[str, Any]:
+    if node is None:
+        return {}
+    return {
+        "text": xml_child_text(node, "text", "Mobert"),
+        "required": as_bool(xml_child_text(node, "required", "true")),
+        "syntax": xml_child_text(node, "syntax", "colon"),
+        "caseSensitive": as_bool(xml_child_text(node, "caseSensitive", "false")),
+    }
+
+
+def parse_module_settings(node: ET.Element) -> Dict[str, Any]:
+    settings: Dict[str, Any] = {
+        "kind": node.tag,
+        "enabled": xml_enabled(node, True),
+        "moduleRef": xml_child_text(node, "moduleRef"),
+        "session": xml_child_text(node, "session"),
+        "listenerGroup": xml_child_text(node, "listenerGroup"),
+        "defaultGroup": xml_child_text(node, "defaultGroup"),
+        "subscribeMode": xml_child_text(node, "subscribeMode"),
+    }
+
+    # WhatsApp-specific grouped module.  This is the central place for the
+    # shared session, group routing and wake word used by whatsapp_watchdog and
+    # whatsapp_output via <moduleRef>whatsapp</moduleRef>.
+    session_default = xml_child_text(node, "session/default")
+    if session_default:
+        settings["session"] = session_default
+    group_listener = xml_child_text(node, "groups/listenerGroup")
+    if group_listener:
+        settings["listenerGroup"] = group_listener
+    group_default = xml_child_text(node, "groups/defaultGroup")
+    if group_default:
+        settings["defaultGroup"] = group_default
+
+    wake = parse_wake_word(node.find("wakeWord"))
+    if wake:
+        settings["wakeWord"] = wake
+    return settings
+
+
 def parse_modules(root: ET.Element) -> Dict[str, Dict[str, Any]]:
-    modules: Dict[str, Dict[str, Any]] = {}
-    for node in root.findall("modules/inputModule") + root.findall("modules/outputModule"):
+    raw_modules: Dict[str, Dict[str, Any]] = {}
+    for node in root.findall("modules/whatsappModule") + root.findall("modules/inputModule") + root.findall("modules/outputModule"):
         module_id = node.attrib.get("id", "").strip()
         if not module_id:
             continue
-        settings: Dict[str, Any] = {
-            "kind": node.tag,
-            "enabled": xml_enabled(node, True),
-            "session": xml_child_text(node, "session"),
-            "listenerGroup": xml_child_text(node, "listenerGroup"),
-            "defaultGroup": xml_child_text(node, "defaultGroup"),
-            "subscribeMode": xml_child_text(node, "subscribeMode"),
-        }
-        wake = node.find("wakeWord")
-        if wake is not None:
-            settings["wakeWord"] = {
-                "text": xml_child_text(wake, "text", "Mobert"),
-                "required": as_bool(xml_child_text(wake, "required", "true")),
-                "syntax": xml_child_text(wake, "syntax", "colon"),
-                "caseSensitive": as_bool(xml_child_text(wake, "caseSensitive", "false")),
-            }
-        modules[module_id] = settings
+        raw_modules[module_id] = parse_module_settings(node)
+
+    modules: Dict[str, Dict[str, Any]] = {}
+    for module_id, settings in raw_modules.items():
+        module_ref = str(settings.get("moduleRef") or "").strip()
+        if module_ref and module_ref in raw_modules:
+            parent = dict(raw_modules[module_ref])
+            parent_enabled = as_bool(parent.get("enabled", True))
+            child_enabled = as_bool(settings.get("enabled", True))
+            # Child settings override parent values only when they are explicitly
+            # present.  Empty values inherit from the referenced module.
+            merged = parent
+            for key, value in settings.items():
+                if key in {"session", "listenerGroup", "defaultGroup", "subscribeMode"} and value == "":
+                    continue
+                merged[key] = value
+            merged["enabled"] = parent_enabled and child_enabled
+            merged["moduleRef"] = module_ref
+            merged["referencedEnabled"] = parent_enabled
+            modules[module_id] = merged
+        else:
+            modules[module_id] = settings
     return modules
 
 
@@ -899,6 +1000,14 @@ def module_is_enabled(module_id: str) -> bool:
     if not BOT_MODULES:
         return True
     return as_bool(module_config(module_id).get("enabled", True))
+
+
+def effective_whatsapp_session() -> str:
+    configured = str(CONFIG.get("waha", {}).get("session", "") or "").strip()
+    if configured:
+        return configured
+    session_name = str(module_config("whatsapp_output").get("session", "") or module_config("whatsapp_watchdog").get("session", "") or module_config("whatsapp").get("session", "") or "").strip()
+    return "" if session_name == "default" else session_name
 
 
 def effective_wake_word(raw: bool = False) -> str:
@@ -1473,8 +1582,14 @@ def apply_waha_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     if "enabled" in data:
         waha["enabled"] = as_bool(data.get("enabled"))
         accepted["enabled"] = waha["enabled"]
+    if "session" in data or "session_name" in data:
+        session_name = str(data.get("session") or data.get("session_name") or "").strip()
+        if not session_name:
+            raise RuntimeError("session must not be empty")
+        waha["session"] = session_name
+        accepted["session"] = session_name
     if not accepted:
-        raise RuntimeError("waha set payload requires enabled")
+        raise RuntimeError("waha set payload requires enabled or session")
     return accepted
 
 
@@ -2028,7 +2143,7 @@ def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str
             module_ref = str(processing.get("module_ref") or "")
             property_name = str(processing.get("property") or "")
             value = render_value(str(processing.get("value") or ""), context)
-            if module_ref == "whatsapp_watchdog" and property_name == "listenerGroup":
+            if module_ref in {"whatsapp", "whatsapp_watchdog"} and property_name == "listenerGroup":
                 group = resolve_group(value)
                 if not group:
                     context["processing.result"] = f"Unbekannte Gruppe: {value}"

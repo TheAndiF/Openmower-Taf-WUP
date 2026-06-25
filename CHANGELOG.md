@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.2 - 2026-06-25
+
+- Added a central `whatsappModule` XML block for shared WAHA session, group routing and wake-word configuration.
+- Changed `whatsapp_watchdog` and `whatsapp_output` to reference the central WhatsApp module through `<moduleRef>whatsapp</moduleRef>`.
+- Updated the flow parser to resolve module references while preserving per-module `enabled` states.
+- Added MQTT support for selecting the WAHA session through `messenger/waha/set/session/json` and `messenger/waha/set/persistent/json`.
+
 ## v0.4.1 - 2026-06-25
 
 - Enabled default ROS MQTT watchdog flows for OpenMower drive-off, charging-finished and emergency/error WhatsApp notifications.

@@ -9,10 +9,17 @@
 
   <modules>
 
-    <inputModule id="whatsapp_watchdog">
+    <whatsappModule id="whatsapp">
       <enabled>true</enabled>
-      <session>default</session>
-      <listenerGroup>g014</listenerGroup>
+
+      <session>
+        <default>Wasserleberweg</default>
+      </session>
+
+      <groups>
+        <defaultGroup>g014</defaultGroup>
+        <listenerGroup>g014</listenerGroup>
+      </groups>
 
       <wakeWord>
         <text>Mobert</text>
@@ -20,12 +27,16 @@
         <syntax>colon</syntax>
         <caseSensitive>false</caseSensitive>
       </wakeWord>
+    </whatsappModule>
+
+    <inputModule id="whatsapp_watchdog">
+      <enabled>true</enabled>
+      <moduleRef>whatsapp</moduleRef>
     </inputModule>
 
     <outputModule id="whatsapp_output">
       <enabled>true</enabled>
-      <session>default</session>
-      <defaultGroup>g014</defaultGroup>
+      <moduleRef>whatsapp</moduleRef>
     </outputModule>
 
     <inputModule id="mqtt_watchdog">
@@ -155,7 +166,7 @@
         </input>
 
         <processing mode="set_module_property">
-          <moduleRef>whatsapp_watchdog</moduleRef>
+          <moduleRef>whatsapp</moduleRef>
           <property>listenerGroup</property>
           <value>{group}</value>
           <persist>true</persist>

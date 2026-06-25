@@ -1,6 +1,7 @@
 {
   "waha": {
-    "enabled": true
+    "enabled": true,
+    "session": ""
   },
   "default_group": "",
   "forward_topics": [],

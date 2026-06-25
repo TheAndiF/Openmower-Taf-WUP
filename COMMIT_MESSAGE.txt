@@ -1,15 +1,15 @@
-BL_Add ROS MQTT WhatsApp notifications
+BL_Add central WhatsApp module reference
 Date: 2026-06-25
 Summary:
-- Enabled default XML watchdog flows that notify WhatsApp when OpenMower drives off, finishes charging or reports an emergency/error.
-- Added a ROS MQTT WLAN cache flow for sensors/om_system_wifi_signal_percent/data so status and notifications can include WLAN strength in percent.
-- Extended the Mobert status output with timestamp, MQTT connection, WLAN strength, OpenMower state, current area or dock/charging text and emergency state.
-- Documented the ROS MQTT source topics, default notifications and topic-prefix adjustment.
+- Added a central whatsappModule XML configuration for the shared WAHA session, default group, listener group and wake word.
+- Updated whatsapp_watchdog and whatsapp_output to reference the central WhatsApp module instead of duplicating session and routing settings.
+- Extended the flow XML parser to resolve moduleRef entries and merge referenced module settings safely.
+- Added optional WAHA session selection through existing MQTT WAHA set topics.
 Changed files:
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - README.md
 - bridge/bot_commands.example.xml
+- bridge/config.example.json
 - bridge/controller.py
 - docs/mqtt-topics.md
-- docs/openmower-ros-whatsapp-notifications.md

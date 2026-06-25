@@ -83,3 +83,10 @@ docker exec -it Mosquitto mosquitto_sub -h localhost -v \
 ```
 
 Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN als Zahl ausgeben, z. B. `WLAN: 62 %`.
+
+
+## v1.3 Hinweis: Statusformat und Hilfe
+
+`Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
+
+`Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.

@@ -22,7 +22,7 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings remain compatible and override the XML defaults at runtime.
 - Use the WhatsApp watchdog module from the XML for the command syntax `Mobert: Befehl`.
 - Send standard WhatsApp notifications from ROS MQTT for mower drive-off, charging finished and emergency/error events.
-- Extend `Mobert: Status` with WLAN strength, mower area/dock/charging state, MQTT connection and timestamp.
+- Format `Mobert: Status` for WhatsApp with readable local time, bold labels, area progress, Emergency and Fehler lines.
 - Store runtime configuration persistently under `/data/config.json`.
 - Build multi-platform Docker images through GitHub Actions.
 
@@ -78,15 +78,25 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 The supplied XML follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
 
-`Mobert: Status` uses the latest cached ROS MQTT values and reports:
+`Mobert: Status` uses the latest cached ROS MQTT values and sends a WhatsApp-friendly reply. The timestamp is shown in the configured local time zone (`STATUS_TIMEZONE`, default `Europe/Berlin`). Field labels are bold, the title is visually separated by a line, and Emergency/Fehler are always visible. If OpenMower is actively mowing an area, the current progress from `current_action_progress` is appended directly behind the area as `(00%)` through `(100%)`.
 
-- timestamp
-- OpenMower state
-- current area or `keine aktive Fläche`
-- battery percentage with charging note only when charging, e.g. `95 % (lädt)`
-- WLAN strength in percent
-- MQTT connection state
-- error line only when `emergency` is active
+Example:
+
+```text
+*Mobert Status*
+──────────────
+
+*Zeit:* 25.06.2026 23:24:37
+*Status:* MOWING
+*Fläche:* Fläche 1 (42%)
+*Akku:* 53 % (lädt)
+*WLAN:* 64 %
+*Emergency:* nein
+*Fehler:* keiner
+*MQTT:* verbunden
+```
+
+`Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload.
 
 For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
 

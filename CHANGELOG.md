@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-25 - v1.3 - Status formatting and XML-based help
+
+- Reformatted `Mobert: Status` for WhatsApp with bold field labels, a visual title underline and local human-readable time via `STATUS_TIMEZONE`.
+- Added active mowing progress behind the area as `(00%)` through `(100%)` using `current_action_progress`.
+- Added always-visible `Emergency` and `Fehler` lines to the status reply.
+- Reworked `Mobert: ?` so the help reply is generated from the active loaded XML command model. The XML remains the source of truth.
+- Added `STATUS_TIMEZONE=Europe/Berlin` to the environment and Compose examples.
+
+
 ## 2026-06-25 - v1.2 - Restrict WiFi cache to data topic
 
 - Changed the default OpenMower status-cache subscriptions from wildcard WiFi filters to concrete `/data` topics: `sensors/om_system_wifi_signal_percent/data` and `openmower/sensors/om_system_wifi_signal_percent/data`.

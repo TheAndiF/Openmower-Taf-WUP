@@ -52,3 +52,10 @@ Die Flow-XML nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Wa
 
 
 Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich mit `openmower/` Prefix. Fuer WLAN wird nur `sensors/om_system_wifi_signal_percent/data` bzw. `openmower/sensors/om_system_wifi_signal_percent/data` verarbeitet, damit binaere `bson`-Payloads den Prozentwert nicht ueberschreiben.
+
+
+## v1.3 Hinweis: Statusformat und Hilfe
+
+`Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
+
+`Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.

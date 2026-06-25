@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
@@ -587,6 +588,7 @@ OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
 # robot_state/json or WLAN sample, but it still replies quickly if ROS-MQTT
 # is quiet.
 STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
+STATUS_TIMEZONE = os.getenv("STATUS_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin"
 
 # Status cache topics are subscribed independently from the XML flows.  This is
 # important for installations that still use the legacy bot_commands.xml format:
@@ -1083,20 +1085,35 @@ def effective_bot_enabled() -> bool:
 
 
 def command_help_text() -> str:
+    """Build the WhatsApp help response from the active XML command model.
+
+    The loaded bot XML is the source of truth.  Changing, disabling or adding
+    command flows in /data/bot_commands.xml changes this help text after reload
+    without touching Python code.
+    """
     wake_word = effective_wake_word()
     enabled_commands = [cmd for cmd in BOT_COMMANDS if cmd.enabled]
+    title = f"*{wake_word} Befehle*"
+    lines = [title, "──────────────"]
+    source = BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE))
+    fmt = BOT_COMMANDS_META.get("format", "xml")
+    lines.append(f"Quelle: aktive XML ({fmt})")
+    if source:
+        lines.append(f"Datei: {source}")
+    lines.append("")
     if not enabled_commands:
-        return f"{wake_word} Befehle:\nKeine Befehle geladen."
-    lines = [f"{wake_word} Befehle:"]
+        lines.append("Keine Befehle geladen.")
+        return "\n".join(lines)
     for cmd in enabled_commands:
-        example = cmd.example or f"{wake_word}: {cmd.trigger}"
+        trigger = cmd.trigger.strip()
+        example = cmd.example or f"{wake_word}: {trigger}"
         # Keep examples aligned with the currently active wake word even when
         # the XML provided a different default.
         if ":" in example:
             example = f"{wake_word}: {example.split(':', 1)[1].strip()}"
-        lines.append(f"- {example} - {cmd.description}")
+        description = (cmd.description or cmd.command_id or trigger).strip().rstrip(".")
+        lines.append(f"- `{example}` - {description}")
     return "\n".join(lines)
-
 
 def interpolate_template(template: str, values: Dict[str, Any]) -> str:
     text = template or ""
@@ -1921,6 +1938,15 @@ def mqtt_connection_text() -> str:
         return "unbekannt"
 
 
+def now_local_text() -> str:
+    """Return a human-readable local timestamp for WhatsApp status replies."""
+    try:
+        tz = ZoneInfo(STATUS_TIMEZONE)
+    except Exception:
+        tz = timezone.utc
+    return datetime.now(timezone.utc).astimezone(tz).strftime("%d.%m.%Y %H:%M:%S")
+
+
 def parse_bool_like(value: Any) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -1956,6 +1982,20 @@ def format_percent_fraction(value: Any) -> str:
         return str(value)
 
 
+def format_progress_percent(value: Any) -> str:
+    """Format OpenMower current_action_progress as 00% through 100%."""
+    number = parse_float_like(value)
+    if number is None:
+        return ""
+    if 0 <= number <= 1:
+        number *= 100
+    number = max(0.0, min(100.0, number))
+    rounded = int(round(number))
+    if rounded >= 100:
+        return "100%"
+    return f"{rounded:02d}%"
+
+
 def battery_text(robot_state: Dict[str, Any]) -> str:
     battery = format_percent_fraction(robot_state.get("battery_percentage"))
     charging = parse_bool_like(robot_state.get("is_charging"))
@@ -1966,35 +2006,68 @@ def battery_text(robot_state: Dict[str, Any]) -> str:
     return battery
 
 
-def current_area_text(robot_state: Dict[str, Any]) -> str:
+def robot_has_active_area(robot_state: Dict[str, Any]) -> bool:
+    area_number = str(robot_state.get("current_area") or "").strip()
+    area_id = str(robot_state.get("current_area_id") or "").strip()
+    return bool((area_number and area_number not in {"-1", "0"}) or area_id)
+
+
+def current_area_text(robot_state: Dict[str, Any], include_progress: bool = True) -> str:
     area_number = str(robot_state.get("current_area") or "").strip()
     area_id = str(robot_state.get("current_area_id") or "").strip()
     if area_number and area_number not in {"-1", "0"}:
-        return f"Fläche {area_number}"
-    if area_id:
-        return f"Fläche {area_id}"
-    return "keine aktive Fläche"
+        area = f"Fläche {area_number}"
+    elif area_id:
+        area = f"Fläche {area_id}"
+    else:
+        return "keine aktive Fläche"
+
+    if include_progress and str(robot_state.get("current_state") or "").upper() == "MOWING":
+        progress = format_progress_percent(robot_state.get("current_action_progress"))
+        if progress:
+            return f"{area} ({progress})"
+    return area
+
+
+def emergency_text(robot_state: Dict[str, Any]) -> str:
+    emergency = parse_bool_like(robot_state.get("emergency"))
+    if emergency is True:
+        return "ja"
+    if emergency is False:
+        return "nein"
+    return "unbekannt"
+
+
+def error_text(robot_state: Dict[str, Any]) -> str:
+    emergency = parse_bool_like(robot_state.get("emergency"))
+    sub_state = str(robot_state.get("current_sub_state") or "").strip()
+    if emergency is True:
+        return sub_state or "Emergency/Notfall aktiv"
+    if sub_state:
+        return sub_state
+    if emergency is False:
+        return "keiner"
+    return "unbekannt"
 
 
 def bot_status_text() -> str:
     robot_state = dict(OPENMOWER_STATE.get("robot_state") or {})
     wifi_value = OPENMOWER_STATE.get("wifi_percent")
     state_name = str(robot_state.get("current_state") or "unbekannt")
-    emergency = parse_bool_like(robot_state.get("emergency"))
     lines = [
-        "Mobert Status",
+        "*Mobert Status*",
+        "──────────────",
         "",
-        f"Zeit: {now_iso()}",
-        f"Status: {state_name}",
-        f"Fläche: {current_area_text(robot_state)}",
-        f"Akku: {battery_text(robot_state)}",
-        f"WLAN: {format_wifi_percent(wifi_value)}",
-        f"MQTT: {mqtt_connection_text()}",
+        f"*Zeit:* {now_local_text()}",
+        f"*Status:* {state_name}",
+        f"*Fläche:* {current_area_text(robot_state)}",
+        f"*Akku:* {battery_text(robot_state)}",
+        f"*WLAN:* {format_wifi_percent(wifi_value)}",
+        f"*Emergency:* {emergency_text(robot_state)}",
+        f"*Fehler:* {error_text(robot_state)}",
+        f"*MQTT:* {mqtt_connection_text()}",
     ]
-    if emergency is True:
-        lines.append("Fehler: Emergency/Notfall aktiv")
     return "\n".join(lines)
-
 
 def bot_groups_text() -> str:
     lines = ["Mobert Gruppen:"]
@@ -2198,6 +2271,7 @@ def enrich_mqtt_context(context: Dict[str, Any], source_topic: str, payload: str
         "mqttTopic": source_topic,
         "mqttPayload": payload,
         "timestamp": now_iso(),
+        "timestampLocal": now_local_text(),
         "mqttConnection": mqtt_connection_text(),
         "wifi_percent": format_wifi_percent(OPENMOWER_STATE.get("wifi_percent")),
     })
@@ -2211,7 +2285,8 @@ def enrich_mqtt_context(context: Dict[str, Any], source_topic: str, payload: str
         context["areaText"] = current_area_text(root)
         context["batteryText"] = battery_text(root)
         context["chargingText"] = "lädt" if parse_bool_like(root.get("is_charging")) is True else "lädt nicht" if parse_bool_like(root.get("is_charging")) is False else "unbekannt"
-        context["errorText"] = "Emergency/Notfall aktiv" if parse_bool_like(root.get("emergency")) is True else "kein Fehler" if parse_bool_like(root.get("emergency")) is False else "unbekannt"
+        context["emergencyText"] = emergency_text(root)
+        context["errorText"] = error_text(root)
     if isinstance(previous_root, dict):
         for key, value in previous_root.items():
             if isinstance(value, (str, int, float, bool)) or value is None:

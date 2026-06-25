@@ -2,7 +2,7 @@
 *.env
 config.json
 data/
-controller_data/
+#controller_data/
 waha_sessions/
 __pycache__/
 *.pyc

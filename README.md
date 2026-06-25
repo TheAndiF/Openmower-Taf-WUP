@@ -71,12 +71,12 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 | Flow | ROS MQTT input | WhatsApp output |
 |---|---|---|
-| `openmower_drives_off_notification` | `openmower/robot_state/json`, `current_state` changes to `MOWING` and `emergency=0` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
-| `openmower_charging_finished_notification` | `openmower/robot_state/json`, `is_charging` changes from `1` to `0` | Message that charging has finished. |
-| `openmower_error_notification` | `openmower/robot_state/json`, `emergency` changes to `1` | Warning message for OpenMower error/emergency. |
-| `openmower_wifi_cache` | `openmower/sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
+| `openmower_drives_off_notification` | `robot_state/json`, `current_state` changes to `MOWING` and `emergency=0` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
+| `openmower_charging_finished_notification` | `robot_state/json`, `is_charging` changes from `1` to `0` | Message that charging has finished. |
+| `openmower_error_notification` | `robot_state/json`, `emergency` changes to `1` | Warning message for OpenMower error/emergency. |
+| `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
 
-The supplied XML now follows the common OpenMower ROS setting `OM_MQTT_TOPIC_PREFIX=openmower`. Therefore command outputs use `openmower/action` and `openmower/timetable/set/suspension/json`, while status inputs use `openmower/robot_state/json` and `openmower/sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a different prefix, so `Mobert: Status` remains robust after future prefix changes.
+The supplied XML follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
 
 `Mobert: Status` uses the latest cached ROS MQTT values and reports:
 
@@ -346,7 +346,7 @@ mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 
 ## Kompakter ROS-MQTT-Status in WhatsApp
 
-`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `openmower/robot_state/json` und `openmower/sensors/om_system_wifi_signal_percent/data`. Der interne Cache erkennt zusätzlich semantisch passende Topics mit anderem oder ohne Prefix, z. B. `robot_state/json`, damit die Statusausgabe nicht wegen eines reinen Topic-Prefixes auf `unbekannt` fällt. Die Ausgabe ist bewusst kurz gehalten:
+`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der interne Cache erkennt zusätzlich semantisch passende Topics mit anderem oder ohne Prefix, z. B. `robot_state/json`, damit die Statusausgabe nicht wegen eines reinen Topic-Prefixes auf `unbekannt` fällt. Die Ausgabe ist bewusst kurz gehalten:
 
 ```text
 Mobert Status
@@ -375,3 +375,19 @@ Ausgehende WhatsApp-Nachrichten werden durch `send_text()` als `direction: out` 
 ## Paketbereinigung
 
 Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cachedateien. `controller_data/bot_commands.xml` bleibt bewusst enthalten, weil diese Datei die aktive Flow-XML fuer die Bridge bereitstellt. Weitere Details stehen in `docs/package-hygiene.md`.
+
+
+## v1.1 status cache correction for unprefixed OpenMower topics
+
+The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered XML therefore uses these unprefixed topics again for status and WLAN watchdog flows.
+
+`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these status cache filters on startup:
+
+- `robot_state/#`
+- `sensors/om_system_wifi_signal_percent/#`
+- `openmower/robot_state/#`
+- `openmower/sensors/om_system_wifi_signal_percent/#`
+
+This keeps the status cache working even if `/data/bot_commands.xml` is still the legacy command-only XML. Custom filters can be provided with `OPENMOWER_STATUS_CACHE_TOPICS` as a comma-separated list.
+
+After deployment, verify the active mounted XML inside the container. If it still starts with `<mobertCommands version="0.1">`, replace `/opt/stacks/whatsapp/controller_data/bot_commands.xml` with the file from this package and recreate the controller container.

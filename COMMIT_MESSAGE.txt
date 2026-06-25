@@ -1,9 +1,10 @@
-BL_Fix OpenMower MQTT topic prefix for status cache
+BL_Fix OpenMower status cache subscriptions
 Date: 2026-06-25
 Summary:
-- Updated active and example Flow XML to use the openmower-prefixed ROS MQTT topics.
-- Added prefix-tolerant topic recognition for the internal Mobert status cache.
-- Documented why Mobert status values were unknown and how to verify the fixed topics after deployment.
+- Added independent OpenMower status cache MQTT subscriptions so Mobert status works even with legacy bot_commands.xml files.
+- Reverted the supplied XML status and command topics to the unprefixed OpenMower topics observed on the target installation.
+- Kept prefix-tolerant status cache matching for installations that use OM_MQTT_TOPIC_PREFIX later.
+- Documented the deployment step for replacing the mounted /data/bot_commands.xml file and verifying live status values.
 Changed files:
 - bridge/controller.py
 - bridge/bot_commands.example.xml
@@ -15,3 +16,4 @@ Changed files:
 - docs/mqtt-message-logging.md
 - docs/openmower-ros-whatsapp-notifications.md
 - docs/status-prefix-fix.md
+- docs/status-cache-subscriptions.md

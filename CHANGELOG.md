@@ -1,5 +1,13 @@
 # Changelog
 
+
+## 2026-06-25 - v1.1 - OpenMower status cache subscriptions
+
+- Added default MQTT subscriptions for `robot_state/#`, `sensors/om_system_wifi_signal_percent/#`, `openmower/robot_state/#` and `openmower/sensors/om_system_wifi_signal_percent/#`.
+- This allows `Mobert: Status` to fill status, area, battery and WLAN even when the mounted `/data/bot_commands.xml` is still in legacy command format and contains no MQTT watchdog flows.
+- Reverted the delivered XML topics for the target installation to the unprefixed OpenMower topics shown by live Mosquitto tests: `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`.
+- Added documentation for replacing the mounted `controller_data/bot_commands.xml` file after deployment.
+
 ## 2026-06-25 - v0.3 - OpenMower MQTT prefix status fix
 
 - Changed active and example Flow XML to use `openmower/` ROS MQTT topics for action, timetable, robot state and WLAN status.

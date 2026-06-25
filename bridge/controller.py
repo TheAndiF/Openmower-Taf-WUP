@@ -588,6 +588,40 @@ OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
 # is quiet.
 STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
 
+# Status cache topics are subscribed independently from the XML flows.  This is
+# important for installations that still use the legacy bot_commands.xml format:
+# legacy XML can answer "Mobert: Status", but it does not define mqtt_watchdog
+# flow subscriptions.  The default list covers the unprefixed OpenMower topics
+# seen on many systems and the common openmower/ prefix variant.
+DEFAULT_STATUS_CACHE_TOPICS = [
+    "robot_state/#",
+    "sensors/om_system_wifi_signal_percent/#",
+    "openmower/robot_state/#",
+    "openmower/sensors/om_system_wifi_signal_percent/#",
+]
+STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
+
+
+def configured_status_cache_topics() -> List[str]:
+    if STATUS_CACHE_TOPICS_RAW:
+        raw = STATUS_CACHE_TOPICS_RAW.replace(";", ",").replace("\n", ",")
+        items = [item.strip().strip("/") for item in raw.split(",") if item.strip()]
+    else:
+        items = list(DEFAULT_STATUS_CACHE_TOPICS)
+    seen = set()
+    result: List[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def subscribe_status_cache_topics(client: mqtt.Client) -> None:
+    for pattern in configured_status_cache_topics():
+        client.subscribe(pattern)
+        log(f"Subscribed OpenMower status cache topic: {pattern}")
+
 
 def ensure_default_bot_commands_file() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -2626,6 +2660,11 @@ def on_connect(client: mqtt.Client, userdata: Any, flags: Any, reason_code: Any,
     client.subscribe(topic("bot", "set", "persistent", "json"))
     client.subscribe(topic("bot", "commands", "set", "renew", "json"))
     client.subscribe(topic("bot", "commands", "set", "xml"))
+
+    # Subscribe status cache topics independently from XML.  This keeps
+    # "Mobert: Status" working even when /data/bot_commands.xml is still
+    # the legacy command-only file and contains no mqtt_watchdog flows.
+    subscribe_status_cache_topics(client)
 
     # Optional internal forwarding configuration. This has no public legacy topic,
     # but can still be controlled via config.json mounted into /data.

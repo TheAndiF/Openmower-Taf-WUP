@@ -12,8 +12,8 @@ Die Bridge meldet wichtige OpenMower-Ereignisse automatisch per WhatsApp und bea
 
 | Quelle | Verwendung |
 |---|---|
-| `openmower/robot_state/json` | Zustand, Fläche, Akku, Laden, Emergency |
-| `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Stärke in Prozent |
+| `robot_state/json` | Zustand, Fläche, Akku, Laden, Emergency |
+| `sensors/om_system_wifi_signal_percent/data` | WLAN-Stärke in Prozent |
 
 ## Statusausgabe
 

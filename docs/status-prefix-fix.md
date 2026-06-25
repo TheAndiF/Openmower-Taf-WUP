@@ -13,23 +13,23 @@ Die aktive XML und die Beispiel-XML verwenden jetzt die OpenMower-Topics mit Pre
 
 | Zweck | Topic |
 |---|---|
-| Start/Pause/Stop-Aktion | `openmower/action` |
-| Zeitplan-Steuerung | `openmower/timetable/set/suspension/json` |
-| OpenMower-Status | `openmower/robot_state/json` |
-| WLAN-Signal | `openmower/sensors/om_system_wifi_signal_percent/data` |
+| Start/Pause/Stop-Aktion | `action` |
+| Zeitplan-Steuerung | `timetable/set/suspension/json` |
+| OpenMower-Status | `robot_state/json` |
+| WLAN-Signal | `sensors/om_system_wifi_signal_percent/data` |
 
 Die vorhandenen Start-Fläche-Topics `openmower/cmd/start_area` und `openmower/cmd/start_area/result` waren bereits korrekt präfixiert und wurden nicht doppelt geändert.
 
 ## Controller-Fix
 
-`bridge/controller.py` erkennt Status- und WLAN-Topics zusätzlich über ihr semantisches Suffix. Dadurch kann der interne Cache auch Daten von Topics wie `robot_state/json`, `openmower/robot_state/json` oder `<anderer-prefix>/robot_state/json` übernehmen.
+`bridge/controller.py` erkennt Status- und WLAN-Topics zusätzlich über ihr semantisches Suffix. Dadurch kann der interne Cache auch Daten von Topics wie `robot_state/json`, `robot_state/json` oder `<anderer-prefix>/robot_state/json` übernehmen.
 
 ## Prüfung nach dem Deployment
 
 ```bash
 docker exec -it Mosquitto mosquitto_sub -h localhost -v \
-  -t 'openmower/robot_state/json' \
-  -t 'openmower/sensors/om_system_wifi_signal_percent/data'
+  -t 'robot_state/json' \
+  -t 'sensors/om_system_wifi_signal_percent/data'
 ```
 
 Danach sollten in den Controller-Logs die abonnierten Flow-Topics sichtbar sein:
@@ -41,8 +41,8 @@ docker logs waha_mqtt_controller --tail=100 | grep 'Subscribed flow MQTT watchdo
 Erwartete Topics:
 
 ```text
-openmower/robot_state/json
-openmower/sensors/om_system_wifi_signal_percent/data
+robot_state/json
+sensors/om_system_wifi_signal_percent/data
 ```
 
 ## Deployment-Hinweis
@@ -62,3 +62,8 @@ docker exec -it Mosquitto mosquitto_pub -h localhost \
   -t 'messenger/bot/commands/set/renew/json' \
   -m '{}'
 ```
+
+
+## Nachtrag v1.1
+
+Der Live-Test auf dem Zielsystem zeigte, dass Status und WLAN tatsaechlich ohne `openmower/` Prefix gesendet werden. Deshalb nutzt die ausgelieferte XML wieder `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der Controller bleibt trotzdem prefix-tolerant und subscribed die Cache-Topics zusaetzlich unabhaengig von der XML. Details siehe `docs/status-cache-subscriptions.md`.

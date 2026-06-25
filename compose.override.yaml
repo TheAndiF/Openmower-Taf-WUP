@@ -1,0 +1,20 @@
+# Local OpenMower override for the WAHA webhook.
+#
+# WAHA rejects webhook URLs that use hostnames with underscores.
+# The controller container is named "waha_mqtt_controller", so WAHA must not
+# call that name directly. This override adds the DNS alias
+# "waha-mqtt-controller" inside the shared Docker network.
+#
+# The WAHA webhook URL in compose.yaml / compose.example.yaml must be:
+#   http://waha-mqtt-controller:8080/webhook
+
+services:
+  waha_mqtt_controller:
+    networks:
+      openmower_default:
+        aliases:
+          - waha-mqtt-controller
+
+networks:
+  openmower_default:
+    external: true

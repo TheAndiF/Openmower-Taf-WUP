@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.3 - 2026-06-25
+
+- Added retained `messenger/status/description` with non-secret deployment hints for MQTT Explorer.
+- Added `d.description` to `messenger/status/json` with WAHA API URL, dashboard URL and `.env` credential location hints.
+- Documented that `WAHA_DASHBOARD_PASSWORD` and `WAHA_API_KEY` must remain in `/opt/stacks/whatsapp/.env` and are not published to MQTT.
+- Added `compose.override.yaml` with the Docker network alias `waha-mqtt-controller` required by the WAHA webhook.
+- Updated `compose.example.yaml` to use the valid webhook hostname `waha-mqtt-controller` instead of `waha_mqtt_controller`.
+- Added source comments explaining why WAHA must not call a hostname with underscores.
+- Updated README and deployment/MQTT documentation for the webhook alias and status description topics.
+
 ## v0.3.1 - 2026-06-24
 
 - Added switchable WAHA provider state below `messenger/waha/#`.

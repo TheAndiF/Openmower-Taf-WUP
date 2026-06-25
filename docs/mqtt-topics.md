@@ -22,6 +22,7 @@ messenger/
 │   ├── json
 │   ├── online
 │   ├── text
+│   ├── description
 │   ├── provider
 │   └── protocol
 │
@@ -151,9 +152,12 @@ JSON snapshots use a `d` wrapper.
 messenger/status/json
 messenger/status/online
 messenger/status/text
+messenger/status/description
 messenger/status/provider
 messenger/status/protocol
 ```
+
+`messenger/status/description` is a retained, human-readable, non-secret deployment hint. It includes the internal WAHA API URL, the configured dashboard URL and the host-side `.env` path where dashboard credentials are stored. It never publishes `WAHA_DASHBOARD_PASSWORD` or `WAHA_API_KEY`.
 
 Example:
 
@@ -163,7 +167,15 @@ Example:
     "online": true,
     "text": "waha WORKING: Mobert lauscht in g014 (OpenMower).",
     "provider": "waha",
-    "protocol": "whatsapp"
+    "protocol": "whatsapp",
+    "description": {
+      "waha_api_url": "http://waha:3000",
+      "waha_dashboard_url": "http://<openmower-ip>:9629/dashboard",
+      "credentials_file": "/opt/stacks/whatsapp/.env",
+      "dashboard_password_variable": "WAHA_DASHBOARD_PASSWORD",
+      "api_key_variable": "WAHA_API_KEY",
+      "security_note": "Secrets are not published to MQTT. Read them on the host from the .env file."
+    }
   }
 }
 ```

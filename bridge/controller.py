@@ -42,6 +42,13 @@ WAHA_API_KEY = os.getenv("WAHA_API_KEY", "")
 PROVIDER_NAME = os.getenv("MESSENGER_PROVIDER", "waha").strip().lower() or "waha"
 PROTOCOL_NAME = os.getenv("MESSENGER_PROTOCOL", "whatsapp").strip().lower() or "whatsapp"
 
+# Human-readable deployment hints for MQTT status/description.
+# Do not publish secrets.  The dashboard password and API key remain in the
+# host-side .env file and are only referenced by variable name.
+WAHA_EXTERNAL_PORT = os.getenv("WAHA_EXTERNAL_PORT", "9629")
+WAHA_DASHBOARD_URL = os.getenv("WAHA_DASHBOARD_URL", f"http://<openmower-ip>:{WAHA_EXTERNAL_PORT}/dashboard")
+CREDENTIALS_FILE_HINT = os.getenv("CREDENTIALS_FILE_HINT", "/opt/stacks/whatsapp/.env")
+
 REFRESH_SECONDS = int(os.getenv("CONTROLLER_REFRESH_SECONDS", "60"))
 BOT_HTTP_PORT = int(os.getenv("BOT_HTTP_PORT", "8080"))
 
@@ -945,15 +952,50 @@ def actions_payload() -> Dict[str, Any]:
     }
 
 
+def status_description_payload() -> Dict[str, Any]:
+    """Return a retained, non-secret status description for MQTT users.
+
+    The description is intended for MQTT Explorer and external integrations.
+    It deliberately publishes only locations and variable names, never the
+    dashboard password or WAHA API key.
+    """
+    dashboard_user = os.getenv("WAHA_DASHBOARD_USERNAME", "waha")
+    description_text = (
+        f"Messenger bridge using provider {PROVIDER_NAME} ({PROTOCOL_NAME}). "
+        f"WAHA API URL: {WAHA_URL}. "
+        f"WAHA dashboard: {WAHA_DASHBOARD_URL}. "
+        f"Dashboard credentials are configured on the OpenMower host in "
+        f"{CREDENTIALS_FILE_HINT}: user variable WAHA_DASHBOARD_USERNAME "
+        f"(current default/display value: {dashboard_user}), password variable "
+        f"WAHA_DASHBOARD_PASSWORD. The password and WAHA_API_KEY are not "
+        f"published to MQTT."
+    )
+    return {
+        "text": description_text,
+        "provider": PROVIDER_NAME,
+        "protocol": PROTOCOL_NAME,
+        "waha_api_url": WAHA_URL,
+        "waha_dashboard_url": WAHA_DASHBOARD_URL,
+        "credentials_file": CREDENTIALS_FILE_HINT,
+        "dashboard_username_variable": "WAHA_DASHBOARD_USERNAME",
+        "dashboard_username_hint": dashboard_user,
+        "dashboard_password_variable": "WAHA_DASHBOARD_PASSWORD",
+        "api_key_variable": "WAHA_API_KEY",
+        "security_note": "Secrets are not published to MQTT. Read them on the host from the .env file.",
+    }
+
+
 def make_status_json(error: str = "") -> Dict[str, Any]:
     provider_text = PROVIDER_NAME
     session_status = SESSION.get("status", "") if SESSION else "UNKNOWN"
     bot_text = bot_listener_payload()["d"]["text"] if SESSION else "Bot-Status noch nicht geladen"
     status_text = f"{provider_text} {session_status}: {bot_text}"
+    description = status_description_payload()
     return {
         "d": {
             "online": True,
             "text": status_text,
+            "description": description,
             "provider": PROVIDER_NAME,
             "protocol": PROTOCOL_NAME,
             "waha_enabled": waha_enabled(),
@@ -1028,6 +1070,7 @@ def publish_state(client: mqtt.Client, refresh_groups: bool = True) -> None:
     publish(client, topic("status", "json"), status)
     publish(client, topic("status", "online"), "true")
     publish(client, topic("status", "text"), status["d"]["text"])
+    publish(client, topic("status", "description"), status["d"]["description"]["text"])
     publish(client, topic("status", "provider"), PROVIDER_NAME)
     publish(client, topic("status", "protocol"), PROTOCOL_NAME)
 
@@ -1604,6 +1647,16 @@ def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
     return 200, {"ok": True, "response": response_text, "command": command_id}
 
 
+# WAHA calls this HTTP server for incoming WhatsApp events.
+#
+# Docker/WAHA note:
+# WAHA validates webhook URLs strictly and rejects hostnames with underscores.
+# Do not use the container name "waha_mqtt_controller" in WHATSAPP_HOOK_URL.
+# Use the Docker network alias "waha-mqtt-controller" instead:
+#
+#   WHATSAPP_HOOK_URL=http://waha-mqtt-controller:8080/webhook
+#
+# The OpenMower deployment provides this alias through compose.override.yaml.
 class WebhookHandler(BaseHTTPRequestHandler):
     def _json_response(self, status: int, payload: Dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

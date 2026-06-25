@@ -12,8 +12,10 @@ services:
       - WAHA_DASHBOARD_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
       - WAHA_API_KEY=${WAHA_API_KEY}
       # WAHA sends incoming WhatsApp messages to the controller.
-      # The controller then checks whether the chat is the MQTT-configured bot listen group.
-      - WHATSAPP_HOOK_URL=http://waha_mqtt_controller:8080/webhook
+      # Important: do not use the container name "waha_mqtt_controller" here.
+      # WAHA validates webhook URLs strictly and rejects hostnames with underscores.
+      # The alias "waha-mqtt-controller" is provided by compose.override.yaml.
+      - WHATSAPP_HOOK_URL=http://waha-mqtt-controller:8080/webhook
       - WHATSAPP_HOOK_EVENTS=message
     volumes:
       - ./waha_sessions:/app/.sessions
@@ -30,6 +32,12 @@ services:
       - MQTT_BASE_TOPIC=${MQTT_BASE_TOPIC:-messenger}
       - WAHA_URL=${WAHA_URL:-http://waha:3000}
       - WAHA_API_KEY=${WAHA_API_KEY}
+      # Non-secret hints published under messenger/status/description.
+      # The password itself is never published to MQTT.
+      - WAHA_EXTERNAL_PORT=${WAHA_EXTERNAL_PORT:-9629}
+      - WAHA_DASHBOARD_URL=${WAHA_DASHBOARD_URL:-http://openmower.local:9629/dashboard}
+      - WAHA_DASHBOARD_USERNAME=${WAHA_DASHBOARD_USERNAME:-waha}
+      - CREDENTIALS_FILE_HINT=${CREDENTIALS_FILE_HINT:-/opt/stacks/whatsapp/.env}
       - CONTROLLER_REFRESH_SECONDS=${CONTROLLER_REFRESH_SECONDS:-60}
       - BOT_HTTP_PORT=${BOT_HTTP_PORT:-8080}
       - DATA_DIR=/data

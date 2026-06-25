@@ -1,6 +1,19 @@
-v0.3.1 switchable WAHA provider
-
-- add messenger/waha enable state and JSON snapshot
-- add session and persistent set topics for WAHA
-- block WAHA queries, group refresh and sending when disabled
-- update docs, README and example config
+BL_Add status description and webhook alias documentation
+Date: 2026-06-25
+Summary:
+- Added a retained non-secret MQTT status description with WAHA API URL, dashboard URL and credential-location hints.
+- Added the same deployment description to messenger/status/json under d.description.
+- Added a Docker Compose override with the webhook-safe alias waha-mqtt-controller.
+- Updated the Compose example to use the alias because WAHA rejects webhook hostnames with underscores.
+- Added source comments and documentation for the WAHA webhook alias and credential handling.
+- Kept secrets out of MQTT; the dashboard password and WAHA API key remain referenced only by variable name and .env path.
+Changed files:
+- .env.example
+- CHANGELOG.md
+- COMMIT_MESSAGE.txt
+- README.md
+- bridge/controller.py
+- compose.example.yaml
+- compose.override.yaml
+- docs/mqtt-topics.md
+- docs/openmower-deploy.md

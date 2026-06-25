@@ -40,6 +40,7 @@ messenger/
 │   ├── json
 │   ├── online
 │   ├── text
+│   ├── description
 │   ├── provider
 │   └── protocol
 │
@@ -148,6 +149,22 @@ messenger/
     │   └── json
     └── events/
         └── json
+```
+
+## Deployment description in MQTT
+
+The controller publishes a retained, non-secret description under:
+
+```text
+messenger/status/description
+```
+
+The same data is included in `messenger/status/json` under `d.description`. It includes the internal WAHA API URL, the configured WAHA dashboard URL and the host-side `.env` location where dashboard credentials are stored. It never publishes `WAHA_DASHBOARD_PASSWORD` or `WAHA_API_KEY`.
+
+For the default OpenMower stack the credential hint is:
+
+```text
+/opt/stacks/whatsapp/.env
 ```
 
 ## Common commands

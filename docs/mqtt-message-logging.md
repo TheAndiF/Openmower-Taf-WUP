@@ -47,7 +47,9 @@ Die Flow-XML nutzt jetzt die konkreten ROS-MQTT-Topics:
 
 | Zweck | Topic |
 |---|---|
-| OpenMower-Zustand | `robot_state/json` |
-| WLAN-Stärke | `sensors/om_system_wifi_signal_percent/data` |
+| OpenMower-Zustand | `openmower/robot_state/json` |
+| WLAN-Stärke | `openmower/sensors/om_system_wifi_signal_percent/data` |
 
 Die JSON-Felder `emergency` und `is_charging` werden als numerische Werte `0` oder `1` ausgewertet.
+
+Hinweis zum Prefix: Die aktive Flow-XML nutzt `openmower/` passend zu `OM_MQTT_TOPIC_PREFIX=openmower`. Der Controller erkennt Status- und WLAN-Daten intern trotzdem auch dann, wenn ein anderer Prefix verwendet wird und das Topic semantisch auf `robot_state/#` bzw. `sensors/om_system_wifi_signal_percent/#` endet.

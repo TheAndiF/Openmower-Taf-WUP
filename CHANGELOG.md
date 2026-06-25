@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-25 - v0.3 - OpenMower MQTT prefix status fix
+
+- Changed active and example Flow XML to use `openmower/` ROS MQTT topics for action, timetable, robot state and WLAN status.
+- Kept already-prefixed `openmower/cmd/start_area` topics unchanged to avoid double prefixing.
+- Added prefix-tolerant status-cache matching in `bridge/controller.py` so `Mobert: Status` recognizes matching `robot_state/#` and WLAN topics with or without a ROS MQTT prefix.
+- Documented the deployment steps and verification commands for the status-topic prefix fix.
+
 ## 2026-06-25 - v0.1 - Package hygiene
 
 - Added `.git/` to `.gitignore`.

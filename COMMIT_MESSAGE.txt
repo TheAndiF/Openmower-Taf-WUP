@@ -1,15 +1,17 @@
-BL_Add MQTT outgoing message logging
+BL_Fix OpenMower MQTT topic prefix for status cache
 Date: 2026-06-25
 Summary:
-- Published outgoing WhatsApp messages as explicit MQTT events and retained last-message status topics.
-- Added retained in/out message history snapshots for easier MQTT inspection.
-- Replaced ROS MQTT wildcard topics in Flow XML with exact OpenMower topics.
-- Adjusted OpenMower ROS JSON conditions to numeric 0/1 values for emergency and charging states.
-- Documented the MQTT outgoing message logging topics.
+- Updated active and example Flow XML to use the openmower-prefixed ROS MQTT topics.
+- Added prefix-tolerant topic recognition for the internal Mobert status cache.
+- Documented why Mobert status values were unknown and how to verify the fixed topics after deployment.
 Changed files:
 - bridge/controller.py
 - bridge/bot_commands.example.xml
 - controller_data/bot_commands.xml
+- README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
+- docs/mqtt-topics.md
 - docs/mqtt-message-logging.md
+- docs/openmower-ros-whatsapp-notifications.md
+- docs/status-prefix-fix.md

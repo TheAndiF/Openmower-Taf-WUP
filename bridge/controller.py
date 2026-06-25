@@ -2030,6 +2030,31 @@ def condition_matches_value(actual: Any, expected: Optional[str]) -> bool:
     return actual_text == expected_text
 
 
+def mqtt_topic_matches_filter_or_suffix(source_topic: str, expected_filter: str) -> bool:
+    """Match MQTT filters even when ROS adds a topic prefix.
+
+    OpenMower ROS installations often publish with OM_MQTT_TOPIC_PREFIX, for
+    example openmower/robot_state/json instead of robot_state/json.  The flow
+    XML subscribes to the concrete prefixed topics, but the status cache should
+    still recognize the semantic status source independent of the prefix.
+    """
+    source = str(source_topic or "").strip("/")
+    expected = str(expected_filter or "").strip("/")
+    if not source or not expected:
+        return False
+    if mqtt.topic_matches_sub(expected, source):
+        return True
+    if source == expected or source.endswith("/" + expected):
+        return True
+    if expected.endswith("/#"):
+        base = expected[:-2].strip("/")
+        if not base:
+            return False
+        padded_source = "/" + source
+        return padded_source.endswith("/" + base) or ("/" + base + "/") in padded_source
+    return False
+
+
 def update_mqtt_state_cache(source_topic: str, payload: str) -> Tuple[Any, Any]:
     parsed = try_parse_json_value(payload)
     previous_entry = MQTT_TOPIC_CACHE.get(source_topic, {})
@@ -2046,14 +2071,14 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
         OPENMOWER_STATE["last_mqtt_payload"] = payload
         OPENMOWER_STATE["last_mqtt_time"] = now_iso()
         changed = True
-        if source_topic == "robot_state" or mqtt.topic_matches_sub("robot_state/#", source_topic):
+        if mqtt_topic_matches_filter_or_suffix(source_topic, "robot_state/#"):
             root = unwrap_data_root(parsed)
             if isinstance(root, dict):
                 OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
                 OPENMOWER_STATE["robot_state"] = root
                 OPENMOWER_STATE["robot_state_time"] = now_iso()
                 changed = True
-        elif source_topic == "sensors/om_system_wifi_signal_percent" or mqtt.topic_matches_sub("sensors/om_system_wifi_signal_percent/#", source_topic):
+        elif mqtt_topic_matches_filter_or_suffix(source_topic, "sensors/om_system_wifi_signal_percent/#"):
             # Some MQTT exporters publish a plain value on /data and others publish
             # JSON on a sibling topic.  Cache the numeric value when possible.
             root = unwrap_data_root(parsed)

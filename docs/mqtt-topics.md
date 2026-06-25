@@ -396,8 +396,8 @@ The default flow XML subscribes to ROS/OpenMower MQTT topics through the central
 
 | Topic | Used for |
 |---|---|
-| `robot_state/json` | OpenMower state, current area, charging flag and emergency flag. |
-| `sensors/om_system_wifi_signal_percent/data` | WLAN strength in percent for status and WhatsApp notifications. |
+| `openmower/robot_state/json` | OpenMower state, current area, charging flag and emergency flag. |
+| `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN strength in percent for status and WhatsApp notifications. |
 
 Enabled default flows:
 
@@ -416,10 +416,12 @@ Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Mel
 
 | Topic/Filter | Zweck |
 |---|---|
-| `robot_state` | primäre OpenMower-Statusmeldung, wenn der MQTT-Exporter direkt auf `robot_state` veröffentlicht |
-| `robot_state/#` | alternative Untertopics, z. B. `robot_state/json` |
-| `sensors/om_system_wifi_signal_percent` | WLAN-Signalstärke, wenn der Sensor direkt auf dem Sensortopic veröffentlicht |
-| `sensors/om_system_wifi_signal_percent/#` | alternative Untertopics, z. B. `/data` oder `/json` |
+| `openmower/robot_state/json` | Standard-Statusmeldung bei `OM_MQTT_TOPIC_PREFIX=openmower` |
+| `robot_state` / `robot_state/#` | Statusmeldung ohne Prefix, wird vom internen Statuscache weiterhin akzeptiert |
+| `<prefix>/robot_state/#` | Statusmeldung mit anderem Prefix, wird semantisch über das Suffix erkannt |
+| `openmower/sensors/om_system_wifi_signal_percent/data` | Standard-WLAN-Signalstärke bei `OM_MQTT_TOPIC_PREFIX=openmower` |
+| `sensors/om_system_wifi_signal_percent/#` | WLAN-Signalstärke ohne Prefix, wird weiterhin akzeptiert |
+| `<prefix>/sensors/om_system_wifi_signal_percent/#` | WLAN-Signalstärke mit anderem Prefix, wird semantisch über das Suffix erkannt |
 
 Wichtige Felder aus `robot_state`:
 
@@ -435,7 +437,7 @@ Wichtige Felder aus `robot_state`:
 
 ## Status-Frische und Nachrichtenhistorie
 
-`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state`/`robot_state/#` und `sensors/om_system_wifi_signal_percent`/`#` gewartet. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
+`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `openmower/robot_state/json` und `openmower/sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit anderem oder ohne Prefix. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
 
 Der kompakte Status enthält keine Dock-Zeile. `is_charging=1` wird in der Akku-Zeile als `(lädt)` angezeigt. Bei `is_charging=0` wird nur der Akkustand ausgegeben.
 
@@ -443,4 +445,4 @@ Ausgehende WhatsApp-Nachrichten, die die Bridge per WAHA sendet, werden im Rings
 
 ## Stop-Befehl
 
-Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logic:mowing/abort_mowing` auf das Topic `action`. Die Befehle `Home`, `Dock` und `Docking` sind nicht in der Standard-XML enthalten, weil dafür noch kein gesicherter OpenMower-Docking-Payload hinterlegt ist.
+Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logic:mowing/abort_mowing` auf das Topic `openmower/action`. Die Befehle `Home`, `Dock` und `Docking` sind nicht in der Standard-XML enthalten, weil dafür noch kein gesicherter OpenMower-Docking-Payload hinterlegt ist.

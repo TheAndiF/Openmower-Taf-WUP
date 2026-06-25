@@ -160,7 +160,7 @@
         </input>
         <processing mode="passthrough" />
         <output module="mqtt_output" type="publish">
-          <topic>action</topic>
+          <topic>openmower/action</topic>
           <qos>1</qos>
           <retain>false</retain>
           <payload>mower_logic:idle/start_mowing</payload>
@@ -185,7 +185,7 @@
         </input>
         <processing mode="passthrough" />
         <output module="mqtt_output" type="publish">
-          <topic>action</topic>
+          <topic>openmower/action</topic>
           <qos>1</qos>
           <retain>false</retain>
           <payload>mower_logic:mowing/pause</payload>
@@ -210,7 +210,7 @@
         </input>
         <processing mode="passthrough" />
         <output module="mqtt_output" type="publish">
-          <topic>action</topic>
+          <topic>openmower/action</topic>
           <qos>1</qos>
           <retain>false</retain>
           <payload>mower_logic:mowing/abort_mowing</payload>
@@ -293,7 +293,7 @@
         </input>
         <processing mode="passthrough" />
         <output module="mqtt_output" type="publish">
-          <topic>timetable/set/suspension/json</topic>
+          <topic>openmower/timetable/set/suspension/json</topic>
           <qos>1</qos>
           <retain>false</retain>
           <payload>{"AutoMowSuspension":0}</payload>
@@ -318,7 +318,7 @@
         </input>
         <processing mode="passthrough" />
         <output module="mqtt_output" type="publish">
-          <topic>timetable/set/suspension/json</topic>
+          <topic>openmower/timetable/set/suspension/json</topic>
           <qos>1</qos>
           <retain>false</retain>
           <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>
@@ -329,6 +329,8 @@
         </output>
       </step>
     </flow>
+    <!-- OpenMower ROS MQTT topics use the configured OM_MQTT_TOPIC_PREFIX.
+         The default package follows OM_MQTT_TOPIC_PREFIX=openmower. -->
     <flow id="openmower_wifi_cache">
       <head>
         <name>OpenMower WLAN cache</name>
@@ -338,7 +340,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>sensors/om_system_wifi_signal_percent/data</topic>
+            <topic>openmower/sensors/om_system_wifi_signal_percent/data</topic>
             <payloadNotEmpty>true</payloadNotEmpty>
           </expect>
         </input>
@@ -354,7 +356,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>openmower/robot_state/json</topic>
             <json>
               <field name="current_state" equals="MOWING" previousNotEquals="MOWING" />
               <field name="emergency" equals="0" />
@@ -385,7 +387,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>openmower/robot_state/json</topic>
             <json>
               <field name="is_charging" equals="0" previousEquals="1" />
             </json>
@@ -415,7 +417,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>openmower/robot_state/json</topic>
             <json>
               <field name="emergency" equals="1" previousNotEquals="1" />
             </json>

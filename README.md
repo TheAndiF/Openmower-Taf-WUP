@@ -71,12 +71,12 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 | Flow | ROS MQTT input | WhatsApp output |
 |---|---|---|
-| `openmower_drives_off_notification` | `robot_state` or `robot_state/#`, `current_state` changes away from `IDLE` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
-| `openmower_charging_finished_notification` | `robot_state` or `robot_state/#`, `is_charging` changes from `true` to `false` | Message that charging has finished. |
-| `openmower_error_notification` | `robot_state` or `robot_state/#`, `emergency` changes to `true` | Warning message for OpenMower error/emergency. |
-| `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent` or `sensors/om_system_wifi_signal_percent/#` | Updates the internal WLAN percentage cache for status and notifications. |
+| `openmower_drives_off_notification` | `openmower/robot_state/json`, `current_state` changes to `MOWING` and `emergency=0` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
+| `openmower_charging_finished_notification` | `openmower/robot_state/json`, `is_charging` changes from `1` to `0` | Message that charging has finished. |
+| `openmower_error_notification` | `openmower/robot_state/json`, `emergency` changes to `1` | Warning message for OpenMower error/emergency. |
+| `openmower_wifi_cache` | `openmower/sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
 
-The XML assumes the ROS MQTT topics are published without an extra prefix, which matches the existing `action`, `robot_state/json` and `sensors/...` topic style used by this stack. If the ROS system uses `OM_MQTT_TOPIC_PREFIX=openmower`, update the XML topics to `openmower/robot_state/json` and `openmower/sensors/om_system_wifi_signal_percent/data`.
+The supplied XML now follows the common OpenMower ROS setting `OM_MQTT_TOPIC_PREFIX=openmower`. Therefore command outputs use `openmower/action` and `openmower/timetable/set/suspension/json`, while status inputs use `openmower/robot_state/json` and `openmower/sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a different prefix, so `Mobert: Status` remains robust after future prefix changes.
 
 `Mobert: Status` uses the latest cached ROS MQTT values and reports:
 
@@ -346,7 +346,7 @@ mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 
 ## Kompakter ROS-MQTT-Status in WhatsApp
 
-`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `robot_state` bzw. `robot_state/#` und `sensors/om_system_wifi_signal_percent/#`. Die Ausgabe ist bewusst kurz gehalten:
+`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `openmower/robot_state/json` und `openmower/sensors/om_system_wifi_signal_percent/data`. Der interne Cache erkennt zusätzlich semantisch passende Topics mit anderem oder ohne Prefix, z. B. `robot_state/json`, damit die Statusausgabe nicht wegen eines reinen Topic-Prefixes auf `unbekannt` fällt. Die Ausgabe ist bewusst kurz gehalten:
 
 ```text
 Mobert Status

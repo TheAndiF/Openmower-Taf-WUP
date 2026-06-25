@@ -12,8 +12,8 @@ Die Bridge meldet wichtige OpenMower-Ereignisse automatisch per WhatsApp und bea
 
 | Quelle | Verwendung |
 |---|---|
-| `robot_state` und `robot_state/#` | Zustand, Fläche, Akku, Laden, Emergency |
-| `sensors/om_system_wifi_signal_percent` und `sensors/om_system_wifi_signal_percent/#` | WLAN-Stärke in Prozent |
+| `openmower/robot_state/json` | Zustand, Fläche, Akku, Laden, Emergency |
+| `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Stärke in Prozent |
 
 ## Statusausgabe
 
@@ -49,3 +49,6 @@ Standardmäßig aktivierte Flows:
 ## Hinweise
 
 Die Flow-XML nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Watchdog und MQTT-Output. Die ROS-MQTT-Topics werden über aktivierte MQTT-Watchdog-Flows abonniert. Bestehende MQTT-Konfigurationsbefehle bleiben weiterhin gültig.
+
+
+Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich über ihr Suffix. Dadurch bleiben Werte für `Mobert: Status` auch bei einem später geänderten ROS-MQTT-Prefix verfügbar, solange die Topics auf `robot_state/#` bzw. `sensors/om_system_wifi_signal_percent/#` enden.

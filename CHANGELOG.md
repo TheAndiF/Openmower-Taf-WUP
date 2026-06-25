@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-25 - v1.2 - Restrict WiFi cache to data topic
+
+- Changed the default OpenMower status-cache subscriptions from wildcard WiFi filters to concrete `/data` topics: `sensors/om_system_wifi_signal_percent/data` and `openmower/sensors/om_system_wifi_signal_percent/data`.
+- Kept robot-state subscriptions on the concrete JSON topics `robot_state/json` and `openmower/robot_state/json`.
+- Added numeric validation for WLAN cache updates so binary payloads such as `sensors/om_system_wifi_signal_percent/bson` cannot overwrite the last valid percentage value.
+- Documented the WiFi `/data` topic requirement and the updated verification commands.
+
 
 ## 2026-06-25 - v1.1 - OpenMower status cache subscriptions
 

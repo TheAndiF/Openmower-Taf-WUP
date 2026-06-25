@@ -377,17 +377,17 @@ Ausgehende WhatsApp-Nachrichten werden durch `send_text()` als `direction: out` 
 Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cachedateien. `controller_data/bot_commands.xml` bleibt bewusst enthalten, weil diese Datei die aktive Flow-XML fuer die Bridge bereitstellt. Weitere Details stehen in `docs/package-hygiene.md`.
 
 
-## v1.1 status cache correction for unprefixed OpenMower topics
+## v1.2 status cache correction for WiFi data topics
 
-The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered XML therefore uses these unprefixed topics again for status and WLAN watchdog flows.
+The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered XML keeps these unprefixed topics for status and WLAN watchdog flows.
 
-`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these status cache filters on startup:
+`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these concrete status cache topics on startup:
 
-- `robot_state/#`
-- `sensors/om_system_wifi_signal_percent/#`
-- `openmower/robot_state/#`
-- `openmower/sensors/om_system_wifi_signal_percent/#`
+- `robot_state/json`
+- `sensors/om_system_wifi_signal_percent/data`
+- `openmower/robot_state/json`
+- `openmower/sensors/om_system_wifi_signal_percent/data`
 
-This keeps the status cache working even if `/data/bot_commands.xml` is still the legacy command-only XML. Custom filters can be provided with `OPENMOWER_STATUS_CACHE_TOPICS` as a comma-separated list.
+The WLAN subscription intentionally targets only `/data`. OpenMower also publishes a binary sibling such as `sensors/om_system_wifi_signal_percent/bson`; wildcard subscriptions like `sensors/om_system_wifi_signal_percent/#` can cache binary data and produce unreadable WLAN output. The controller additionally validates WLAN payloads as numbers before updating the cache.
 
-After deployment, verify the active mounted XML inside the container. If it still starts with `<mobertCommands version="0.1">`, replace `/opt/stacks/whatsapp/controller_data/bot_commands.xml` with the file from this package and recreate the controller container.
+Custom filters can be provided with `OPENMOWER_STATUS_CACHE_TOPICS` as a comma-separated list. For WiFi, always use the concrete `/data` topic. After deployment, verify the active mounted XML inside the container. If it still starts with `<mobertCommands version="0.1">`, replace `/opt/stacks/whatsapp/controller_data/bot_commands.xml` with the file from this package and recreate the controller container.

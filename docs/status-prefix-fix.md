@@ -67,3 +67,8 @@ docker exec -it Mosquitto mosquitto_pub -h localhost \
 ## Nachtrag v1.1
 
 Der Live-Test auf dem Zielsystem zeigte, dass Status und WLAN tatsaechlich ohne `openmower/` Prefix gesendet werden. Deshalb nutzt die ausgelieferte XML wieder `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der Controller bleibt trotzdem prefix-tolerant und subscribed die Cache-Topics zusaetzlich unabhaengig von der XML. Details siehe `docs/status-cache-subscriptions.md`.
+
+
+## v1.2 Hinweis
+
+Der WLAN-Statuscache subscribed nicht mehr auf `sensors/om_system_wifi_signal_percent/#`, sondern nur noch auf `sensors/om_system_wifi_signal_percent/data` und die entsprechende `openmower/` Variante. Dadurch wird das binaere Geschwistertopic `bson` ignoriert.

@@ -591,13 +591,14 @@ STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
 # Status cache topics are subscribed independently from the XML flows.  This is
 # important for installations that still use the legacy bot_commands.xml format:
 # legacy XML can answer "Mobert: Status", but it does not define mqtt_watchdog
-# flow subscriptions.  The default list covers the unprefixed OpenMower topics
-# seen on many systems and the common openmower/ prefix variant.
+# flow subscriptions.  The defaults intentionally subscribe only to text/JSON
+# status topics.  Do not subscribe the WiFi cache to the parent # wildcard by
+# default because OpenMower also publishes a binary bson sibling there.
 DEFAULT_STATUS_CACHE_TOPICS = [
-    "robot_state/#",
-    "sensors/om_system_wifi_signal_percent/#",
-    "openmower/robot_state/#",
-    "openmower/sensors/om_system_wifi_signal_percent/#",
+    "robot_state/json",
+    "sensors/om_system_wifi_signal_percent/data",
+    "openmower/robot_state/json",
+    "openmower/sensors/om_system_wifi_signal_percent/data",
 ]
 STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
 
@@ -1940,7 +1941,7 @@ def format_wifi_percent(value: Any) -> str:
         number = float(str(value).replace(",", "."))
         return f"{number:.0f} %"
     except Exception:
-        return str(value)
+        return "unbekannt"
 
 
 def format_percent_fraction(value: Any) -> str:
@@ -2089,6 +2090,46 @@ def mqtt_topic_matches_filter_or_suffix(source_topic: str, expected_filter: str)
     return False
 
 
+def mqtt_topic_matches_suffix(source_topic: str, expected_topic: str) -> bool:
+    """Match a concrete MQTT topic with or without an arbitrary prefix."""
+    source = str(source_topic or "").strip("/")
+    expected = str(expected_topic or "").strip("/")
+    return bool(source and expected and (source == expected or source.endswith("/" + expected)))
+
+
+def parse_float_like(value: Any) -> Optional[float]:
+    """Return a float for numeric MQTT payloads and ignore binary/text garbage."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", ".")
+    if text.endswith("%"):
+        text = text[:-1].strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def extract_wifi_percent_value(payload: str, parsed: Any) -> Optional[float]:
+    """Extract the numeric WiFi percentage from the text /data topic only."""
+    root = unwrap_data_root(parsed)
+    candidate: Any = root
+    if isinstance(root, dict):
+        candidate = None
+        for key in ("data", "value", "percent", "wifi_percent"):
+            if key in root:
+                candidate = root[key]
+                break
+    value = parse_float_like(candidate)
+    if value is not None:
+        return value
+    return parse_float_like(payload)
+
+
 def update_mqtt_state_cache(source_topic: str, payload: str) -> Tuple[Any, Any]:
     parsed = try_parse_json_value(payload)
     previous_entry = MQTT_TOPIC_CACHE.get(source_topic, {})
@@ -2112,19 +2153,15 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
                 OPENMOWER_STATE["robot_state"] = root
                 OPENMOWER_STATE["robot_state_time"] = now_iso()
                 changed = True
-        elif mqtt_topic_matches_filter_or_suffix(source_topic, "sensors/om_system_wifi_signal_percent/#"):
-            # Some MQTT exporters publish a plain value on /data and others publish
-            # JSON on a sibling topic.  Cache the numeric value when possible.
-            root = unwrap_data_root(parsed)
-            value = payload
-            if isinstance(root, dict):
-                for candidate in ("data", "value", "percent", "wifi_percent"):
-                    if candidate in root:
-                        value = str(root[candidate])
-                        break
-            OPENMOWER_STATE["wifi_percent"] = value
-            OPENMOWER_STATE["wifi_time"] = now_iso()
-            changed = True
+        elif mqtt_topic_matches_suffix(source_topic, "sensors/om_system_wifi_signal_percent/data"):
+            # Only the /data sibling is a human-readable number.  The parent
+            # sensor topic can also contain /bson, which is binary and must not
+            # overwrite the last valid WLAN percentage in the status cache.
+            value = extract_wifi_percent_value(payload, parsed)
+            if value is not None:
+                OPENMOWER_STATE["wifi_percent"] = value
+                OPENMOWER_STATE["wifi_time"] = now_iso()
+                changed = True
         if changed:
             OPENMOWER_STATE_UPDATED.notify_all()
 

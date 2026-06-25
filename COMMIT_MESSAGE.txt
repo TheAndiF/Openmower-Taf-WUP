@@ -1,19 +1,20 @@
-BL_Fix OpenMower status cache subscriptions
+BL_Restrict WiFi status cache to data topic
 Date: 2026-06-25
 Summary:
-- Added independent OpenMower status cache MQTT subscriptions so Mobert status works even with legacy bot_commands.xml files.
-- Reverted the supplied XML status and command topics to the unprefixed OpenMower topics observed on the target installation.
-- Kept prefix-tolerant status cache matching for installations that use OM_MQTT_TOPIC_PREFIX later.
-- Documented the deployment step for replacing the mounted /data/bot_commands.xml file and verifying live status values.
+- Changed OpenMower status-cache defaults to subscribe only to concrete text/JSON topics.
+- Restricted WLAN cache updates to sensors/om_system_wifi_signal_percent/data so binary bson payloads cannot overwrite the percentage value.
+- Added numeric validation before updating the cached WLAN percentage.
+- Documented the WiFi data-topic requirement, verification commands and deployment notes.
 Changed files:
+- .env.example
+- compose.example.yaml
 - bridge/controller.py
-- bridge/bot_commands.example.xml
-- controller_data/bot_commands.xml
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
-- docs/mqtt-topics.md
 - docs/mqtt-message-logging.md
+- docs/mqtt-topics.md
 - docs/openmower-ros-whatsapp-notifications.md
-- docs/status-prefix-fix.md
 - docs/status-cache-subscriptions.md
+- docs/status-prefix-fix.md
+- docs/wifi-data-topic-fix.md

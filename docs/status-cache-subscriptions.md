@@ -1,4 +1,4 @@
-# Openmower-Taf-WUP - Status cache subscriptions - v1.1
+# Openmower-Taf-WUP - Status cache subscriptions - v1.2
 
 ## Anlass
 
@@ -7,26 +7,39 @@ Live-Tests auf dem Zielsystem zeigen, dass OpenMower Statusdaten auf unprefixed 
 - `robot_state/json`
 - `sensors/om_system_wifi_signal_percent/data`
 
-Gleichzeitig zeigte der laufende Container noch eine legacy `/data/bot_commands.xml` mit `<mobertCommands version="0.1">`. Diese legacy XML kann lokale Befehle wie `Mobert: Status` definieren, enthaelt aber keine `mqtt_watchdog` Flow-Subscriptions. Dadurch blieb der interne Statuscache leer, obwohl Mosquitto die OpenMower-Daten hatte.
+Der MQTT-Baum des WLAN-Sensors enthaelt aber mindestens zwei Untertopics:
+
+- `sensors/om_system_wifi_signal_percent/data` - lesbarer Zahlenwert, z. B. `62.000000`
+- `sensors/om_system_wifi_signal_percent/bson` - binaerer Payload
+
+Wenn der Controller auf `sensors/om_system_wifi_signal_percent/#` subscribed, kann der binaere `bson`-Payload den letzten lesbaren WLAN-Wert ueberschreiben. In WhatsApp erschien dann ein Zeichenmuell wie `\x10\x01dP@` statt `62 %`.
 
 ## Korrektur
 
-`bridge/controller.py` subscribed die Statuscache-Topics nun unabhaengig von der XML:
+`bridge/controller.py` subscribed die Statuscache-Topics weiterhin unabhaengig von der XML, aber nun standardmaessig nur auf konkrete Text-/JSON-Topics:
 
-- `robot_state/#`
-- `sensors/om_system_wifi_signal_percent/#`
-- `openmower/robot_state/#`
-- `openmower/sensors/om_system_wifi_signal_percent/#`
+- `robot_state/json`
+- `sensors/om_system_wifi_signal_percent/data`
+- `openmower/robot_state/json`
+- `openmower/sensors/om_system_wifi_signal_percent/data`
 
-Wenn eins dieser Topics empfangen wird, wird der interne Cache ueber `update_mqtt_state_cache()` und `update_openmower_state()` aktualisiert. Dadurch kann `Mobert: Status` auch mit einer legacy XML aktuelle Werte ausgeben.
+Zusätzlich aktualisiert der Controller den WLAN-Cache nur noch, wenn das empfangene Topic semantisch auf `sensors/om_system_wifi_signal_percent/data` endet und der Payload als Zahl gelesen werden kann. Binaere oder nicht-numerische Payloads werden fuer WLAN ignoriert und koennen den letzten gueltigen Wert nicht mehr ueberschreiben.
 
 ## Optionale Anpassung
 
-Bei anderen Prefixen kann die Liste ueber eine Umgebungsvariable gesetzt werden:
+Bei anderen Prefixen kann die Liste ueber eine Umgebungsvariable gesetzt werden. Auch dort sollte WLAN immer auf `/data` zeigen, nicht auf `/#`:
 
 ```bash
-OPENMOWER_STATUS_CACHE_TOPICS=robot_state/#,sensors/om_system_wifi_signal_percent/#,meinprefix/robot_state/#,meinprefix/sensors/om_system_wifi_signal_percent/#
+OPENMOWER_STATUS_CACHE_TOPICS=robot_state/json,sensors/om_system_wifi_signal_percent/data,meinprefix/robot_state/json,meinprefix/sensors/om_system_wifi_signal_percent/data
 ```
+
+Nicht empfohlen fuer WLAN:
+
+```bash
+OPENMOWER_STATUS_CACHE_TOPICS=sensors/om_system_wifi_signal_percent/#
+```
+
+Der Wildcard-Filter empfaengt auch `bson` und andere Geschwistertopics.
 
 ## Deployment-Hinweis
 
@@ -49,7 +62,15 @@ docker logs waha_mqtt_controller --tail=100 | grep -Ei 'Subscribed OpenMower sta
 Erwartete Eintraege:
 
 ```text
-Subscribed OpenMower status cache topic: robot_state/#
+Subscribed OpenMower status cache topic: robot_state/json
+Subscribed OpenMower status cache topic: sensors/om_system_wifi_signal_percent/data
+Subscribed OpenMower status cache topic: openmower/robot_state/json
+Subscribed OpenMower status cache topic: openmower/sensors/om_system_wifi_signal_percent/data
+```
+
+Es sollte nicht mehr erscheinen:
+
+```text
 Subscribed OpenMower status cache topic: sensors/om_system_wifi_signal_percent/#
 ```
 
@@ -61,4 +82,4 @@ docker exec -it Mosquitto mosquitto_sub -h localhost -v \
   -t 'sensors/om_system_wifi_signal_percent/data'
 ```
 
-Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN ausgeben.
+Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN als Zahl ausgeben, z. B. `WLAN: 62 %`.

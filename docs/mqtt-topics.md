@@ -416,12 +416,11 @@ Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Mel
 
 | Topic/Filter | Zweck |
 |---|---|
-| `robot_state/json` | Standard-Statusmeldung bei `OM_MQTT_TOPIC_PREFIX=openmower` |
-| `robot_state` / `robot_state/#` | Statusmeldung ohne Prefix, wird vom internen Statuscache weiterhin akzeptiert |
-| `<prefix>/robot_state/#` | Statusmeldung mit anderem Prefix, wird semantisch über das Suffix erkannt |
-| `sensors/om_system_wifi_signal_percent/data` | Standard-WLAN-Signalstärke bei `OM_MQTT_TOPIC_PREFIX=openmower` |
-| `sensors/om_system_wifi_signal_percent/#` | WLAN-Signalstärke ohne Prefix, wird weiterhin akzeptiert |
-| `<prefix>/sensors/om_system_wifi_signal_percent/#` | WLAN-Signalstärke mit anderem Prefix, wird semantisch über das Suffix erkannt |
+| `robot_state/json` | OpenMower Statusmeldung ohne Prefix |
+| `openmower/robot_state/json` | OpenMower Statusmeldung mit `openmower/` Prefix, wird ebenfalls akzeptiert |
+| `sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke ohne Prefix; nur dieses Text-/Zahlen-Topic fuer WLAN verwenden |
+| `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke mit `openmower/` Prefix, wird ebenfalls akzeptiert |
+| `sensors/om_system_wifi_signal_percent/bson` | Binaeres Geschwistertopic; wird fuer den WLAN-Cache bewusst ignoriert |
 
 Wichtige Felder aus `robot_state`:
 
@@ -437,7 +436,7 @@ Wichtige Felder aus `robot_state`:
 
 ## Status-Frische und Nachrichtenhistorie
 
-`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state/json` und `sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit anderem oder ohne Prefix. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
+`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state/json` und `sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit `openmower/` Prefix; fuer WLAN wird ausschliesslich das konkrete `/data` Topic akzeptiert. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
 
 Der kompakte Status enthält keine Dock-Zeile. `is_charging=1` wird in der Akku-Zeile als `(lädt)` angezeigt. Bei `is_charging=0` wird nur der Akkustand ausgegeben.
 

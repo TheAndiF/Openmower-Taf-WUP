@@ -51,4 +51,4 @@ Standardmäßig aktivierte Flows:
 Die Flow-XML nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Watchdog und MQTT-Output. Die ROS-MQTT-Topics werden über aktivierte MQTT-Watchdog-Flows abonniert. Bestehende MQTT-Konfigurationsbefehle bleiben weiterhin gültig.
 
 
-Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich über ihr Suffix. Dadurch bleiben Werte für `Mobert: Status` auch bei einem später geänderten ROS-MQTT-Prefix verfügbar, solange die Topics auf `robot_state/#` bzw. `sensors/om_system_wifi_signal_percent/#` enden.
+Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich mit `openmower/` Prefix. Fuer WLAN wird nur `sensors/om_system_wifi_signal_percent/data` bzw. `openmower/sensors/om_system_wifi_signal_percent/data` verarbeitet, damit binaere `bson`-Payloads den Prozentwert nicht ueberschreiben.

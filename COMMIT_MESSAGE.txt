@@ -1,16 +1,11 @@
-BL_Add stop command and fresh status history
+BL_Include active Flow XML in controller data
 Date: 2026-06-25
 Summary:
-- Added an enabled Mobert: Stop command that publishes mower_logic:mowing/abort_mowing to the action topic.
-- Removed the placeholder Dock/Home/Docking command from the default Flow XML until a confirmed docking MQTT payload is available.
-- Updated Mobert: Status to wait briefly for fresh ROS-MQTT robot_state and WLAN data before replying.
-- Improved compact status formatting for area and battery/charging text.
-- Ensured outgoing WhatsApp messages are recorded in the message history with direction=out and mirrored from WAHA fromMe webhooks.
-- Added message-history deduplication by WAHA message_id when available.
+- Added the current Mobert Flow XML as controller_data/bot_commands.xml for direct deployment into the mounted controller data volume.
+- Kept the packaged bridge/bot_commands.example.xml as the synchronized default.
+- Updated README and CHANGELOG with deployment notes for replacing older legacy XML files.
 Changed files:
-- bridge/controller.py
-- bridge/bot_commands.example.xml
+- controller_data/bot_commands.xml
 - README.md
 - CHANGELOG.md
-- docs/mqtt-topics.md
 - COMMIT_MESSAGE.txt

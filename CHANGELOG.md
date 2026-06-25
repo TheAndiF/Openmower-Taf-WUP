@@ -1,5 +1,12 @@
 ## 2026-06-25 - Status-Frische, Stop-Befehl und Nachrichtenhistorie
 
+## v0.2 - 2026-06-25 - Include active Flow XML in controller data
+
+- Added `controller_data/bot_commands.xml` with the current Flow XML so deployments no longer fall back to the legacy XML after copying the package.
+- Kept `bridge/bot_commands.example.xml` synchronized as the packaged default.
+- Documented that existing installations should replace the mounted `/data/bot_commands.xml` or reload it via MQTT.
+
+
 - Added enabled `Mobert: Stop` command as the start counterpart. It publishes `mower_logic:mowing/abort_mowing` to `action`.
 - Removed the placeholder Dock/Home/Docking command from the default flow XML until a confirmed docking MQTT payload exists.
 - `Mobert: Status` now waits briefly for fresh `robot_state` and WLAN MQTT samples before sending the WhatsApp reply.

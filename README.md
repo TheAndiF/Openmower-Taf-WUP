@@ -311,7 +311,7 @@ Mobert: Pause
 Mobert: Stop
 ```
 
-The command XML is stored at `/data/bot_commands.xml`. If the file does not exist, the controller creates it from the packaged `bot_commands.example.xml`.
+The command XML is stored at `/data/bot_commands.xml`. The package now also includes `controller_data/bot_commands.xml` with the current Flow XML so an existing Docker volume can be initialized directly from the delivered package. If the file does not exist, the controller creates it from the packaged `bot_commands.example.xml`.
 
 ## Security
 

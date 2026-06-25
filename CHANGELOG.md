@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0 - 2026-06-25
+
+- Added XML-driven Mobert flow architecture with central `whatsapp_watchdog`, `mqtt_watchdog`, `whatsapp_output` and `mqtt_output` modules.
+- Replaced the example command XML with the new `mobertBotConfig` flow structure using `head`, `input`, `processing` and `output` blocks.
+- Added a compatibility parser for legacy `mobertCommands` XML files.
+- Added flow execution for local replies, status, group listing, default target, listener-group changes, MQTT publish outputs and WhatsApp send outputs.
+- Added MQTT confirmation handling for flow steps with `mqtt_watchdog` confirmation inputs and timeout outputs.
+- Added runtime XML replacement through `messenger/bot/commands/set/xml`.
+- Kept existing MQTT settings topics for WAHA, group selection, message history and Bot configuration. Bot MQTT settings override XML defaults where applicable.
+
 ## v0.3.3 - 2026-06-25
 
 - Added retained `messenger/status/description` with non-secret deployment hints for MQTT Explorer.

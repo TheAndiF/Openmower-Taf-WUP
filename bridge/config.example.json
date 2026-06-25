@@ -16,7 +16,7 @@
   },
   "bot": {
     "enabled": true,
-    "wake_word": "Mobert",
+    "wake_word": "",
     "listen_group": ""
   }
 }

@@ -1,130 +1,392 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mobertCommands version="0.1" language="de">
-  <meta>
-    <name>Mobert OpenMower Befehle</name>
-    <description>Befehlsdefinition fuer den Mobert WhatsApp Bot</description>
-  </meta>
+<mobertBotConfig version="0.3" language="de">
 
-  <command id="help" enabled="true" category="system">
-    <trigger>?</trigger>
-    <example>Mobert: ?</example>
-    <description>Hilfe anzeigen</description>
-    <action type="local_reply">
-      <response>{help}</response>
-    </action>
-  </command>
+  <head>
+    <name>Mobert OpenMower Flow Configuration</name>
+    <description>XML-gesteuerte Flow-Konfiguration mit zentralen Watchdog- und Output-Modulen.</description>
+    <enabled>true</enabled>
+  </head>
 
-  <command id="status" enabled="true" category="status">
-    <trigger>Status</trigger>
-    <example>Mobert: Status</example>
-    <description>Status von Mobert und OpenMower anzeigen</description>
-    <action type="local_status">
-      <responseTemplate>status_short</responseTemplate>
-    </action>
-  </command>
+  <modules>
 
-  <command id="groups" enabled="true" category="messenger">
-    <trigger>Gruppen</trigger>
-    <example>Mobert: Gruppen</example>
-    <description>Bekannte WhatsApp-Gruppen anzeigen</description>
-    <action type="local_groups" />
-  </command>
+    <inputModule id="whatsapp_watchdog">
+      <enabled>true</enabled>
+      <session>default</session>
+      <listenerGroup>g014</listenerGroup>
 
-  <command id="target" enabled="true" category="messenger">
-    <trigger>Ziel</trigger>
-    <example>Mobert: Ziel</example>
-    <description>Standard-Zielgruppe anzeigen</description>
-    <action type="local_default_group" />
-  </command>
+      <wakeWord>
+        <text>Mobert</text>
+        <required>true</required>
+        <syntax>colon</syntax>
+        <caseSensitive>false</caseSensitive>
+      </wakeWord>
+    </inputModule>
 
-  <command id="set_listener_group" enabled="true" category="bot">
-    <trigger>Lauschen {group}</trigger>
-    <example>Mobert: Lauschen g014</example>
-    <description>Bot-Lauschgruppe setzen</description>
-    <parameters>
-      <parameter name="group" type="string" required="true" />
-    </parameters>
-    <action type="local_set_listener_group" />
-  </command>
+    <outputModule id="whatsapp_output">
+      <enabled>true</enabled>
+      <session>default</session>
+      <defaultGroup>g014</defaultGroup>
+    </outputModule>
 
-  <command id="start_mowing" enabled="true" category="mower">
-    <trigger>Start</trigger>
-    <example>Mobert: Start</example>
-    <description>Maehbetrieb starten</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>mower_logic:idle/start_mowing</payload>
-      </mqttPublish>
-      <immediateConfirmation>Start-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
+    <inputModule id="mqtt_watchdog">
+      <enabled>true</enabled>
+      <subscribeMode>enabled_flows</subscribeMode>
+    </inputModule>
 
-  <command id="pause_mowing" enabled="true" category="mower">
-    <trigger>Pause</trigger>
-    <example>Mobert: Pause</example>
-    <description>Laufenden Maehbetrieb pausieren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>mower_logic:mowing/pause</payload>
-      </mqttPublish>
-      <immediateConfirmation>Pause-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
+    <outputModule id="mqtt_output">
+      <enabled>true</enabled>
+    </outputModule>
 
-  <command id="dock" enabled="false" category="mower">
-    <trigger>Dock</trigger>
-    <example>Mobert: Dock</example>
-    <description>Zur Dockingstation fahren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>TODO_OPENMOWER_DOCK_ACTION</payload>
-      </mqttPublish>
-      <immediateConfirmation>Dock-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
+  </modules>
 
-  <command id="start_area" enabled="false" category="area">
-    <trigger>Start {area}</trigger>
-    <example>Mobert: Start 3</example>
-    <description>Bestimmte Flaeche starten</description>
-    <parameters>
-      <parameter name="area" type="integer" required="true" min="1" />
-    </parameters>
-    <action type="mqtt_publish">
-      <mqttPublish topic="openmower/cmd/start_area" qos="1" retain="false">
-        <payload>{"area":"{area}"}</payload>
-      </mqttPublish>
-      <immediateConfirmation>Start fuer Flaeche {area} wurde an MQTT gesendet.</immediateConfirmation>
-      <waitForMqttConfirmation enabled="true" timeoutSeconds="10">
-        <topic>openmower/cmd/start_area/result</topic>
-        <successResponse>Start bestaetigt: {payload}</successResponse>
-        <timeoutResponse>Gesendet, aber keine MQTT-Bestaetigung erhalten.</timeoutResponse>
-        <errorResponse>Start konnte nicht bestaetigt werden: {payload}</errorResponse>
-      </waitForMqttConfirmation>
-    </action>
-  </command>
+  <flows>
 
-  <command id="schedule_on" enabled="false" category="schedule">
-    <trigger>Zeitplan ein</trigger>
-    <example>Mobert: Zeitplan ein</example>
-    <description>Zeitplan aktivieren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="timetable/set/suspension/json" qos="1" retain="false">
-        <payload>{"AutoMowSuspension":0}</payload>
-      </mqttPublish>
-      <immediateConfirmation>Zeitplan wurde aktiviert.</immediateConfirmation>
-    </action>
-  </command>
+    <flow id="help">
+      <head>
+        <name>Help</name>
+        <description>Hilfe anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
 
-  <command id="schedule_off" enabled="false" category="schedule">
-    <trigger>Zeitplan aus</trigger>
-    <example>Mobert: Zeitplan aus</example>
-    <description>Zeitplan deaktivieren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="timetable/set/suspension/json" qos="1" retain="false">
-        <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>
-      </mqttPublish>
-      <immediateConfirmation>Zeitplan wurde deaktiviert.</immediateConfirmation>
-    </action>
-  </command>
-</mobertCommands>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>?</command>
+          </expect>
+        </input>
+
+        <processing mode="local_reply">
+          <template>{help}</template>
+        </processing>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="status">
+      <head>
+        <name>Status</name>
+        <description>Status von Mobert und OpenMower anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status</command>
+          </expect>
+        </input>
+
+        <processing mode="local_status">
+          <responseTemplate>status_short</responseTemplate>
+        </processing>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="groups">
+      <head>
+        <name>Groups</name>
+        <description>Bekannte WhatsApp-Gruppen anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Gruppen</command>
+          </expect>
+        </input>
+
+        <processing mode="local_groups" />
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="target">
+      <head>
+        <name>Target</name>
+        <description>Standard-Zielgruppe anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Ziel</command>
+          </expect>
+        </input>
+
+        <processing mode="local_default_group" />
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="set_listener_group">
+      <head>
+        <name>Set listener group</name>
+        <description>Bot-Lauschgruppe setzen.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Lauschen {group}</command>
+          </expect>
+          <parameters>
+            <parameter name="group" type="string" required="true" />
+          </parameters>
+        </input>
+
+        <processing mode="set_module_property">
+          <moduleRef>whatsapp_watchdog</moduleRef>
+          <property>listenerGroup</property>
+          <value>{group}</value>
+          <persist>true</persist>
+        </processing>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="start_mowing">
+      <head>
+        <name>Start mowing</name>
+        <description>Maehbetrieb starten.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Start</command>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>action</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>mower_logic:idle/start_mowing</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Start-Befehl wurde an OpenMower gesendet.</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="pause_mowing">
+      <head>
+        <name>Pause mowing</name>
+        <description>Laufenden Maehbetrieb pausieren.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Pause</command>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>action</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>mower_logic:mowing/pause</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Pause-Befehl wurde an OpenMower gesendet.</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="dock">
+      <head>
+        <name>Dock</name>
+        <description>Zur Dockingstation fahren.</description>
+        <enabled>false</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Dock</command>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>action</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>TODO_OPENMOWER_DOCK_ACTION</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Dock-Befehl wurde an OpenMower gesendet.</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="start_area">
+      <head>
+        <name>Start area</name>
+        <description>Bestimmte Flaeche starten und MQTT-Bestaetigung abwarten.</description>
+        <enabled>false</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Start {area}</command>
+          </expect>
+          <parameters>
+            <parameter name="area" type="integer" required="true" min="1" />
+          </parameters>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>openmower/cmd/start_area</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>{"area":"{area}"}</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Start fuer Flaeche {area} wurde an MQTT gesendet.</message>
+        </output>
+
+        <nextStep>wait_for_mqtt_confirmation</nextStep>
+      </step>
+
+      <step id="wait_for_mqtt_confirmation">
+        <input module="mqtt_watchdog" type="confirmation">
+          <timeoutSeconds>10</timeoutSeconds>
+          <expect>
+            <topic>openmower/cmd/start_area/result</topic>
+            <payloadNotEmpty>true</payloadNotEmpty>
+          </expect>
+        </input>
+
+        <processing mode="confirmation_result">
+          <successWhen>
+            <default>true</default>
+          </successWhen>
+          <errorWhen>
+            <payloadContains>error</payloadContains>
+          </errorWhen>
+        </processing>
+
+        <output module="whatsapp_output" type="send" result="success">
+          <target>{replyTarget}</target>
+          <message>Start fuer Flaeche {area} bestaetigt: {payload}</message>
+        </output>
+
+        <output module="whatsapp_output" type="send" result="timeout">
+          <target>{replyTarget}</target>
+          <message>Gesendet, aber keine MQTT-Bestaetigung erhalten.</message>
+        </output>
+
+        <output module="whatsapp_output" type="send" result="error">
+          <target>{replyTarget}</target>
+          <message>Start konnte nicht bestaetigt werden: {payload}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="schedule_on">
+      <head>
+        <name>Schedule on</name>
+        <description>Zeitplan aktivieren.</description>
+        <enabled>false</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Zeitplan ein</command>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>timetable/set/suspension/json</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>{"AutoMowSuspension":0}</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Zeitplan wurde aktiviert.</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="schedule_off">
+      <head>
+        <name>Schedule off</name>
+        <description>Zeitplan deaktivieren.</description>
+        <enabled>false</enabled>
+      </head>
+
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Zeitplan aus</command>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="mqtt_output" type="publish">
+          <topic>timetable/set/suspension/json</topic>
+          <qos>1</qos>
+          <retain>false</retain>
+          <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>
+        </output>
+
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>Zeitplan wurde deaktiviert.</message>
+        </output>
+      </step>
+    </flow>
+
+  </flows>
+
+</mobertBotConfig>

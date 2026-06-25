@@ -17,12 +17,49 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Send WhatsApp messages through MQTT.
 - Enable or disable WAHA through MQTT, live or persistently.
 - Store a configurable retained history of the last messages, default `10`.
-- Load Mobert commands from `/data/bot_commands.xml`.
-- Publish the raw command XML and parsed command JSON below `messenger/bot/commands/#`.
-- Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics.
-- Require the command syntax `Mobert: Befehl`.
+- Load Mobert flow commands from `/data/bot_commands.xml` using the XML-driven module architecture.
+- Publish the raw command/flow XML and parsed command JSON below `messenger/bot/commands/#`.
+- Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings remain compatible and override the XML defaults at runtime.
+- Use the WhatsApp watchdog module from the XML for the command syntax `Mobert: Befehl`.
 - Store runtime configuration persistently under `/data/config.json`.
 - Build multi-platform Docker images through GitHub Actions.
+
+
+## XML-driven flow architecture
+
+`/data/bot_commands.xml` now supports the flow format:
+
+```text
+mobertBotConfig
+├── modules
+│   ├── inputModule  whatsapp_watchdog
+│   ├── inputModule  mqtt_watchdog
+│   ├── outputModule whatsapp_output
+│   └── outputModule mqtt_output
+└── flows
+    └── flow
+        ├── head
+        └── step
+            ├── input
+            ├── processing
+            └── output
+```
+
+There is only one central watchdog/output instance per module type. The XML does not start separate listeners for every command. Instead, the active `flow` entries decide which WhatsApp commands and MQTT topics are relevant.
+
+Legacy `mobertCommands` XML files are still accepted, but the supplied example file uses the new flow structure. Existing MQTT configuration topics remain available. For example, `messenger/bot/set/session/json` can still set `enabled`, `wake_word` and `listen_group_alias`; these values override the XML defaults until the controller is restarted or the persistent config is changed.
+
+The bot XML itself can be replaced through MQTT:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+```
+
+Reload the current file from disk:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
+```
 
 ## MQTT base topic
 
@@ -136,6 +173,7 @@ messenger/
     │   ├── version
     │   ├── source
     │   ├── set/
+    │   │   ├── xml
     │   │   └── renew/
     │   │       └── json
     │   └── validation/
@@ -147,6 +185,9 @@ messenger/
     │       └── json
     ├── validation/
     │   └── json
+    ├── confirmations/
+    │   └── pending/
+    │       └── json
     └── events/
         └── json
 ```
@@ -257,3 +298,16 @@ bot_commands.xml with private data
 ```
 
 Use `.env.example`, `bridge/config.example.json` and `bridge/bot_commands.example.xml` for examples only.
+
+
+Replace the Mobert XML via MQTT:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+```
+
+Reload the Mobert XML from disk:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
+```

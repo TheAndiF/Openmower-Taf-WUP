@@ -185,7 +185,8 @@ def default_config() -> Dict[str, Any]:
         },
         "bot": {
             "enabled": True,
-            "wake_word": "Mobert",
+            # Empty means: use the wakeWord defined by the XML whatsapp_watchdog module.
+            "wake_word": "",
             # listen_group is configured by MQTT, e.g. g001.
             # The controller resolves g001 to the internal WhatsApp group chatId.
             "listen_group": "",
@@ -495,8 +496,17 @@ def group_alias_from_chat_id(chat_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Bot command XML module
+# Bot flow XML module
 # ---------------------------------------------------------------------------
+
+# The controller supports two XML dialects for compatibility:
+# 1. Legacy <mobertCommands> command files.
+# 2. New <mobertBotConfig> flow files with modules, head, input,
+#    processing and output blocks.
+#
+# Internally both dialects are exposed as BotCommand entries so the public MQTT
+# command status topics remain stable.  New flow files additionally populate
+# BOT_MODULES and BOT_FLOWS and are executed by the small flow engine below.
 
 @dataclass
 class BotCommand:
@@ -516,6 +526,8 @@ class BotCommand:
     immediate_confirmation: str = ""
     parameters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     wait_confirmation: Dict[str, Any] = field(default_factory=dict)
+    flow_id: str = ""
+    step_id: str = "start"
     _regex: Optional[re.Pattern[str]] = field(default=None, repr=False)
 
     def to_json(self) -> Dict[str, Any]:
@@ -528,6 +540,8 @@ class BotCommand:
             "description": self.description,
             "action_type": self.action_type,
         }
+        if self.flow_id:
+            data["flow"] = {"id": self.flow_id, "step": self.step_id}
         if self.parameters:
             data["parameters"] = self.parameters
         if self.mqtt_topic:
@@ -535,6 +549,13 @@ class BotCommand:
         if self.wait_confirmation:
             data["wait_confirmation"] = self.wait_confirmation
         return data
+
+
+BOT_MODULES: Dict[str, Dict[str, Any]] = {}
+BOT_FLOWS: Dict[str, Dict[str, Any]] = {}
+BOT_CONFIG_ENABLED = True
+PENDING_CONFIRMATIONS: List[Dict[str, Any]] = []
+PENDING_CONFIRMATIONS_LOCK = threading.Lock()
 
 
 def ensure_default_bot_commands_file() -> None:
@@ -548,99 +569,27 @@ def ensure_default_bot_commands_file() -> None:
 
 
 def default_bot_commands_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<mobertCommands version="0.1" language="de">
-  <meta>
-    <name>Mobert OpenMower Befehle</name>
-    <description>Befehlsdefinition fuer den Mobert WhatsApp Bot</description>
-  </meta>
-
-  <command id="help" enabled="true" category="system">
-    <trigger>?</trigger>
-    <example>Mobert: ?</example>
-    <description>Hilfe anzeigen</description>
-    <action type="local_reply">
-      <response>{help}</response>
-    </action>
-  </command>
-
-  <command id="status" enabled="true" category="status">
-    <trigger>Status</trigger>
-    <example>Mobert: Status</example>
-    <description>Status von Mobert und OpenMower anzeigen</description>
-    <action type="local_status">
-      <responseTemplate>status_short</responseTemplate>
-    </action>
-  </command>
-
-  <command id="groups" enabled="true" category="messenger">
-    <trigger>Gruppen</trigger>
-    <example>Mobert: Gruppen</example>
-    <description>Bekannte WhatsApp-Gruppen anzeigen</description>
-    <action type="local_groups" />
-  </command>
-
-  <command id="target" enabled="true" category="messenger">
-    <trigger>Ziel</trigger>
-    <example>Mobert: Ziel</example>
-    <description>Standard-Zielgruppe anzeigen</description>
-    <action type="local_default_group" />
-  </command>
-
-  <command id="set_listener_group" enabled="true" category="bot">
-    <trigger>Lauschen {group}</trigger>
-    <example>Mobert: Lauschen g014</example>
-    <description>Bot-Lauschgruppe setzen</description>
-    <parameters>
-      <parameter name="group" type="string" required="true" />
-    </parameters>
-    <action type="local_set_listener_group" />
-  </command>
-
-  <command id="start_mowing" enabled="true" category="mower">
-    <trigger>Start</trigger>
-    <example>Mobert: Start</example>
-    <description>Maehbetrieb starten</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>mower_logic:idle/start_mowing</payload>
-      </mqttPublish>
-      <immediateConfirmation>Start-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
-
-  <command id="pause_mowing" enabled="true" category="mower">
-    <trigger>Pause</trigger>
-    <example>Mobert: Pause</example>
-    <description>Laufenden Maehbetrieb pausieren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>mower_logic:mowing/pause</payload>
-      </mqttPublish>
-      <immediateConfirmation>Pause-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
-
-  <command id="dock" enabled="false" category="mower">
-    <trigger>Dock</trigger>
-    <example>Mobert: Dock</example>
-    <description>Zur Dockingstation fahren</description>
-    <action type="mqtt_publish">
-      <mqttPublish topic="action" qos="1" retain="false">
-        <payload>TODO_OPENMOWER_DOCK_ACTION</payload>
-      </mqttPublish>
-      <immediateConfirmation>Dock-Befehl wurde an OpenMower gesendet.</immediateConfirmation>
-    </action>
-  </command>
-</mobertCommands>
-"""
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<mobertBotConfig version="0.3" language="de">\n\n  <head>\n    <name>Mobert OpenMower Flow Configuration</name>\n    <description>XML-gesteuerte Flow-Konfiguration mit zentralen Watchdog- und Output-Modulen.</description>\n    <enabled>true</enabled>\n  </head>\n\n  <modules>\n\n    <inputModule id="whatsapp_watchdog">\n      <enabled>true</enabled>\n      <session>default</session>\n      <listenerGroup>g014</listenerGroup>\n\n      <wakeWord>\n        <text>Mobert</text>\n        <required>true</required>\n        <syntax>colon</syntax>\n        <caseSensitive>false</caseSensitive>\n      </wakeWord>\n    </inputModule>\n\n    <outputModule id="whatsapp_output">\n      <enabled>true</enabled>\n      <session>default</session>\n      <defaultGroup>g014</defaultGroup>\n    </outputModule>\n\n    <inputModule id="mqtt_watchdog">\n      <enabled>true</enabled>\n      <subscribeMode>enabled_flows</subscribeMode>\n    </inputModule>\n\n    <outputModule id="mqtt_output">\n      <enabled>true</enabled>\n    </outputModule>\n\n  </modules>\n\n  <flows>\n\n    <flow id="help">\n      <head>\n        <name>Help</name>\n        <description>Hilfe anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>?</command>\n          </expect>\n        </input>\n\n        <processing mode="local_reply">\n          <template>{help}</template>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="status">\n      <head>\n        <name>Status</name>\n        <description>Status von Mobert und OpenMower anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Status</command>\n          </expect>\n        </input>\n\n        <processing mode="local_status">\n          <responseTemplate>status_short</responseTemplate>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="groups">\n      <head>\n        <name>Groups</name>\n        <description>Bekannte WhatsApp-Gruppen anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Gruppen</command>\n          </expect>\n        </input>\n\n        <processing mode="local_groups" />\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="target">\n      <head>\n        <name>Target</name>\n        <description>Standard-Zielgruppe anzeigen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Ziel</command>\n          </expect>\n        </input>\n\n        <processing mode="local_default_group" />\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="set_listener_group">\n      <head>\n        <name>Set listener group</name>\n        <description>Bot-Lauschgruppe setzen.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Lauschen {group}</command>\n          </expect>\n          <parameters>\n            <parameter name="group" type="string" required="true" />\n          </parameters>\n        </input>\n\n        <processing mode="set_module_property">\n          <moduleRef>whatsapp_watchdog</moduleRef>\n          <property>listenerGroup</property>\n          <value>{group}</value>\n          <persist>true</persist>\n        </processing>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>{processing.result}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="start_mowing">\n      <head>\n        <name>Start mowing</name>\n        <description>Maehbetrieb starten.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Start</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>mower_logic:idle/start_mowing</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Start-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="pause_mowing">\n      <head>\n        <name>Pause mowing</name>\n        <description>Laufenden Maehbetrieb pausieren.</description>\n        <enabled>true</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Pause</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>mower_logic:mowing/pause</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Pause-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="dock">\n      <head>\n        <name>Dock</name>\n        <description>Zur Dockingstation fahren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Dock</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>action</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>TODO_OPENMOWER_DOCK_ACTION</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Dock-Befehl wurde an OpenMower gesendet.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="start_area">\n      <head>\n        <name>Start area</name>\n        <description>Bestimmte Flaeche starten und MQTT-Bestaetigung abwarten.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Start {area}</command>\n          </expect>\n          <parameters>\n            <parameter name="area" type="integer" required="true" min="1" />\n          </parameters>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>openmower/cmd/start_area</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"area":"{area}"}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Start fuer Flaeche {area} wurde an MQTT gesendet.</message>\n        </output>\n\n        <nextStep>wait_for_mqtt_confirmation</nextStep>\n      </step>\n\n      <step id="wait_for_mqtt_confirmation">\n        <input module="mqtt_watchdog" type="confirmation">\n          <timeoutSeconds>10</timeoutSeconds>\n          <expect>\n            <topic>openmower/cmd/start_area/result</topic>\n            <payloadNotEmpty>true</payloadNotEmpty>\n          </expect>\n        </input>\n\n        <processing mode="confirmation_result">\n          <successWhen>\n            <default>true</default>\n          </successWhen>\n          <errorWhen>\n            <payloadContains>error</payloadContains>\n          </errorWhen>\n        </processing>\n\n        <output module="whatsapp_output" type="send" result="success">\n          <target>{replyTarget}</target>\n          <message>Start fuer Flaeche {area} bestaetigt: {payload}</message>\n        </output>\n\n        <output module="whatsapp_output" type="send" result="timeout">\n          <target>{replyTarget}</target>\n          <message>Gesendet, aber keine MQTT-Bestaetigung erhalten.</message>\n        </output>\n\n        <output module="whatsapp_output" type="send" result="error">\n          <target>{replyTarget}</target>\n          <message>Start konnte nicht bestaetigt werden: {payload}</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="schedule_on">\n      <head>\n        <name>Schedule on</name>\n        <description>Zeitplan aktivieren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Zeitplan ein</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>timetable/set/suspension/json</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"AutoMowSuspension":0}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Zeitplan wurde aktiviert.</message>\n        </output>\n      </step>\n    </flow>\n\n    <flow id="schedule_off">\n      <head>\n        <name>Schedule off</name>\n        <description>Zeitplan deaktivieren.</description>\n        <enabled>false</enabled>\n      </head>\n\n      <step id="start">\n        <input module="whatsapp_watchdog" type="command">\n          <expect>\n            <command>Zeitplan aus</command>\n          </expect>\n        </input>\n\n        <processing mode="passthrough" />\n\n        <output module="mqtt_output" type="publish">\n          <topic>timetable/set/suspension/json</topic>\n          <qos>1</qos>\n          <retain>false</retain>\n          <payload>{"AutoMowSuspension":"9999-12-31T23:59:59Z"}</payload>\n        </output>\n\n        <output module="whatsapp_output" type="send">\n          <target>{replyTarget}</target>\n          <message>Zeitplan wurde deaktiviert.</message>\n        </output>\n      </step>\n    </flow>\n\n  </flows>\n\n</mobertBotConfig>\n'
 
 
-def xml_child_text(element: ET.Element, path: str, default: str = "") -> str:
+def xml_child_text(element: Optional[ET.Element], path: str, default: str = "") -> str:
+    if element is None:
+        return default
     child = element.find(path)
     if child is None or child.text is None:
         return default
     return child.text.strip()
+
+
+def xml_enabled(element: Optional[ET.Element], default: bool = True) -> bool:
+    if element is None:
+        return default
+    if "enabled" in element.attrib:
+        return as_bool(element.attrib.get("enabled"))
+    enabled_text = xml_child_text(element, "enabled", "")
+    if enabled_text != "":
+        return as_bool(enabled_text)
+    return default
 
 
 def compile_trigger_regex(trigger: str, parameters: Dict[str, Dict[str, Any]]) -> re.Pattern[str]:
@@ -660,13 +609,169 @@ def compile_trigger_regex(trigger: str, parameters: Dict[str, Dict[str, Any]]) -
     return re.compile(regex, re.IGNORECASE)
 
 
-def load_bot_commands() -> Tuple[str, Dict[str, Any], List[BotCommand], Dict[str, Any]]:
-    ensure_default_bot_commands_file()
-    raw_xml = BOT_COMMANDS_FILE.read_text(encoding="utf-8")
-    root = ET.fromstring(raw_xml)
+def parse_parameters(parent: Optional[ET.Element]) -> Dict[str, Dict[str, Any]]:
+    params: Dict[str, Dict[str, Any]] = {}
+    if parent is None:
+        return params
+    for param in parent.findall("parameters/parameter"):
+        name = param.attrib.get("name", "").strip()
+        if name:
+            params[name] = {
+                "type": param.attrib.get("type", "string"),
+                "required": as_bool(param.attrib.get("required", "true")),
+                "min": param.attrib.get("min"),
+                "max": param.attrib.get("max"),
+            }
+    return params
+
+
+def parse_output_node(node: ET.Element) -> Dict[str, Any]:
+    return {
+        "module": node.attrib.get("module", "").strip(),
+        "type": node.attrib.get("type", "send").strip(),
+        "result": node.attrib.get("result", "").strip(),
+        "target": xml_child_text(node, "target"),
+        "message": xml_child_text(node, "message"),
+        "topic": xml_child_text(node, "topic"),
+        "payload": xml_child_text(node, "payload"),
+        "qos": int(xml_child_text(node, "qos", "0") or 0),
+        "retain": as_bool(xml_child_text(node, "retain", "false")),
+    }
+
+
+def parse_step(node: ET.Element) -> Dict[str, Any]:
+    input_node = node.find("input")
+    expect = input_node.find("expect") if input_node is not None else None
+    processing_node = node.find("processing")
+    processing: Dict[str, Any] = {
+        "mode": processing_node.attrib.get("mode", "passthrough") if processing_node is not None else "passthrough",
+        "template": xml_child_text(processing_node, "template"),
+        "response_template": xml_child_text(processing_node, "responseTemplate"),
+        "module_ref": xml_child_text(processing_node, "moduleRef"),
+        "property": xml_child_text(processing_node, "property"),
+        "value": xml_child_text(processing_node, "value"),
+        "persist": as_bool(xml_child_text(processing_node, "persist", "false")),
+        "success_default": as_bool(xml_child_text(processing_node, "successWhen/default", "true")),
+        "error_payload_contains": xml_child_text(processing_node, "errorWhen/payloadContains"),
+    }
+    step = {
+        "id": node.attrib.get("id", "start"),
+        "input": {
+            "module": input_node.attrib.get("module", "") if input_node is not None else "",
+            "type": input_node.attrib.get("type", "") if input_node is not None else "",
+            "timeout_seconds": int(xml_child_text(input_node, "timeoutSeconds", "0") or 0),
+            "command": xml_child_text(expect, "command"),
+            "topic": xml_child_text(expect, "topic"),
+            "payload_equals": xml_child_text(expect, "payloadEquals"),
+            "payload_not_empty": as_bool(xml_child_text(expect, "payloadNotEmpty", "false")),
+            "parameters": parse_parameters(input_node),
+        },
+        "processing": processing,
+        "outputs": [parse_output_node(out) for out in node.findall("output")],
+        "next_step": xml_child_text(node, "nextStep"),
+    }
+    return step
+
+
+def parse_modules(root: ET.Element) -> Dict[str, Dict[str, Any]]:
+    modules: Dict[str, Dict[str, Any]] = {}
+    for node in root.findall("modules/inputModule") + root.findall("modules/outputModule"):
+        module_id = node.attrib.get("id", "").strip()
+        if not module_id:
+            continue
+        settings: Dict[str, Any] = {
+            "kind": node.tag,
+            "enabled": xml_enabled(node, True),
+            "session": xml_child_text(node, "session"),
+            "listenerGroup": xml_child_text(node, "listenerGroup"),
+            "defaultGroup": xml_child_text(node, "defaultGroup"),
+            "subscribeMode": xml_child_text(node, "subscribeMode"),
+        }
+        wake = node.find("wakeWord")
+        if wake is not None:
+            settings["wakeWord"] = {
+                "text": xml_child_text(wake, "text", "Mobert"),
+                "required": as_bool(xml_child_text(wake, "required", "true")),
+                "syntax": xml_child_text(wake, "syntax", "colon"),
+                "caseSensitive": as_bool(xml_child_text(wake, "caseSensitive", "false")),
+            }
+        modules[module_id] = settings
+    return modules
+
+
+def make_flow_command(flow: Dict[str, Any], step: Dict[str, Any]) -> Optional[BotCommand]:
+    input_cfg = step.get("input", {})
+    if input_cfg.get("module") != "whatsapp_watchdog" or input_cfg.get("type") != "command":
+        return None
+    trigger = str(input_cfg.get("command") or "").strip()
+    if not trigger:
+        return None
+    params = dict(input_cfg.get("parameters") or {})
+    command = BotCommand(
+        command_id=flow["id"],
+        enabled=as_bool(flow.get("enabled", True)),
+        category=flow.get("category", "general"),
+        trigger=trigger,
+        example=f"{effective_wake_word(raw=True)}: {trigger}",
+        description=flow.get("description", ""),
+        action_type="flow",
+        parameters=params,
+        flow_id=flow["id"],
+        step_id=step.get("id", "start"),
+    )
+    command._regex = compile_trigger_regex(command.trigger, command.parameters)
+    return command
+
+
+def load_flow_bot_config(raw_xml: str, root: ET.Element) -> Tuple[Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    version = root.attrib.get("version", "")
+    language = root.attrib.get("language", "de")
+    head = root.find("head")
+    modules = parse_modules(root)
+    flows: Dict[str, Dict[str, Any]] = {}
+    commands: List[BotCommand] = []
+    root_enabled = xml_enabled(head, True)
+    for flow_node in root.findall("flows/flow"):
+        flow_id = flow_node.attrib.get("id", "").strip()
+        if not flow_id:
+            continue
+        flow_head = flow_node.find("head")
+        steps: Dict[str, Dict[str, Any]] = {}
+        flow = {
+            "id": flow_id,
+            "name": xml_child_text(flow_head, "name", flow_id),
+            "description": xml_child_text(flow_head, "description"),
+            "category": xml_child_text(flow_head, "category", "general"),
+            "enabled": root_enabled and xml_enabled(flow_head, True),
+            "steps": steps,
+        }
+        for step_node in flow_node.findall("step"):
+            step = parse_step(step_node)
+            steps[step["id"]] = step
+        flows[flow_id] = flow
+        for step in steps.values():
+            command = make_flow_command(flow, step)
+            if command is not None:
+                commands.append(command)
+    meta = {
+        "format": "flow",
+        "version": version,
+        "language": language,
+        "name": xml_child_text(head, "name"),
+        "description": xml_child_text(head, "description"),
+        "enabled": root_enabled,
+        "source": str(BOT_COMMANDS_FILE),
+        "modules": list(modules.keys()),
+        "flows": len(flows),
+    }
+    return meta, commands, {"valid": True, "error": "", "format": "flow"}, modules, flows
+
+
+def load_legacy_bot_commands(raw_xml: str, root: ET.Element) -> Tuple[Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     version = root.attrib.get("version", "")
     language = root.attrib.get("language", "de")
     meta = {
+        "format": "legacy",
         "version": version,
         "language": language,
         "name": xml_child_text(root, "meta/name"),
@@ -675,16 +780,7 @@ def load_bot_commands() -> Tuple[str, Dict[str, Any], List[BotCommand], Dict[str
     }
     commands: List[BotCommand] = []
     for node in root.findall("command"):
-        params: Dict[str, Dict[str, Any]] = {}
-        for param in node.findall("parameters/parameter"):
-            name = param.attrib.get("name", "").strip()
-            if name:
-                params[name] = {
-                    "type": param.attrib.get("type", "string"),
-                    "required": as_bool(param.attrib.get("required", "true")),
-                    "min": param.attrib.get("min"),
-                    "max": param.attrib.get("max"),
-                }
+        params = parse_parameters(node)
         action = node.find("action")
         action_type = action.attrib.get("type", "local_reply") if action is not None else "local_reply"
         mqtt_publish = action.find("mqttPublish") if action is not None else None
@@ -720,7 +816,20 @@ def load_bot_commands() -> Tuple[str, Dict[str, Any], List[BotCommand], Dict[str
         command._regex = compile_trigger_regex(command.trigger, command.parameters)
         if command.command_id and command.trigger:
             commands.append(command)
-    return raw_xml, meta, commands, {"valid": True, "error": ""}
+    return meta, commands, {"valid": True, "error": "", "format": "legacy"}, {}, {}
+
+
+def load_bot_commands() -> Tuple[str, Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    ensure_default_bot_commands_file()
+    raw_xml = BOT_COMMANDS_FILE.read_text(encoding="utf-8")
+    root = ET.fromstring(raw_xml)
+    if root.tag == "mobertBotConfig":
+        meta, commands, validation, modules, flows = load_flow_bot_config(raw_xml, root)
+    elif root.tag == "mobertCommands":
+        meta, commands, validation, modules, flows = load_legacy_bot_commands(raw_xml, root)
+    else:
+        raise RuntimeError(f"Unsupported bot XML root element: {root.tag}")
+    return raw_xml, meta, commands, validation, modules, flows
 
 
 BOT_COMMANDS_XML = ""
@@ -730,29 +839,73 @@ BOT_COMMANDS_VALIDATION: Dict[str, Any] = {"valid": False, "error": "not loaded"
 
 
 def reload_bot_commands() -> None:
-    global BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION
+    global BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS, BOT_CONFIG_ENABLED
     try:
-        BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION = load_bot_commands()
-        log(f"Loaded {len(BOT_COMMANDS)} bot commands from {BOT_COMMANDS_FILE}")
+        BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS = load_bot_commands()
+        BOT_CONFIG_ENABLED = as_bool(BOT_COMMANDS_META.get("enabled", True))
+        log(f"Loaded {len(BOT_COMMANDS)} bot commands from {BOT_COMMANDS_FILE} ({BOT_COMMANDS_META.get('format', 'unknown')})")
     except Exception as exc:
         BOT_COMMANDS_VALIDATION = {"valid": False, "error": str(exc)}
         BOT_COMMANDS = []
+        BOT_MODULES = {}
+        BOT_FLOWS = {}
         BOT_COMMANDS_XML = ""
         BOT_COMMANDS_META = {"version": "", "source": str(BOT_COMMANDS_FILE)}
+        BOT_CONFIG_ENABLED = False
         log(f"Could not load bot commands: {exc}")
 
 
-reload_bot_commands()
+def module_config(module_id: str) -> Dict[str, Any]:
+    return BOT_MODULES.get(module_id, {})
+
+
+def module_is_enabled(module_id: str) -> bool:
+    if not BOT_MODULES:
+        return True
+    return as_bool(module_config(module_id).get("enabled", True))
+
+
+def effective_wake_word(raw: bool = False) -> str:
+    if not raw:
+        configured = str(CONFIG.get("bot", {}).get("wake_word", "") or "").strip()
+        if configured:
+            return configured
+    wake = module_config("whatsapp_watchdog").get("wakeWord") if BOT_MODULES else None
+    if isinstance(wake, dict) and str(wake.get("text") or "").strip():
+        return str(wake.get("text") or "Mobert").strip()
+    return "Mobert"
+
+
+def effective_listener_group() -> str:
+    configured = str(CONFIG.get("bot", {}).get("listen_group", "") or "").strip()
+    if configured:
+        return configured
+    return str(module_config("whatsapp_watchdog").get("listenerGroup", "") or "").strip()
+
+
+def effective_default_group() -> str:
+    configured = str(CONFIG.get("default_group", "") or "").strip()
+    if configured:
+        return configured
+    return str(module_config("whatsapp_output").get("defaultGroup", "") or "").strip()
+
+
+def effective_bot_enabled() -> bool:
+    return BOT_CONFIG_ENABLED and as_bool(CONFIG.get("bot", {}).get("enabled", True)) and module_is_enabled("whatsapp_watchdog")
 
 
 def command_help_text() -> str:
-    wake_word = CONFIG.get("bot", {}).get("wake_word", "Mobert")
+    wake_word = effective_wake_word()
     enabled_commands = [cmd for cmd in BOT_COMMANDS if cmd.enabled]
     if not enabled_commands:
         return f"{wake_word} Befehle:\nKeine Befehle geladen."
     lines = [f"{wake_word} Befehle:"]
     for cmd in enabled_commands:
         example = cmd.example or f"{wake_word}: {cmd.trigger}"
+        # Keep examples aligned with the currently active wake word even when
+        # the XML provided a different default.
+        if ":" in example:
+            example = f"{wake_word}: {example.split(':', 1)[1].strip()}"
         lines.append(f"- {example} - {cmd.description}")
     return "\n".join(lines)
 
@@ -774,6 +927,8 @@ def find_command(command_text: str) -> Tuple[Optional[BotCommand], Dict[str, str
             return cmd, {key: value.strip() for key, value in match.groupdict().items()}
     return None, {}
 
+
+reload_bot_commands()
 
 # ---------------------------------------------------------------------------
 # State JSON builders and publishing
@@ -823,7 +978,7 @@ def waha_payload() -> Dict[str, Any]:
 
 
 def groups_payload() -> Dict[str, Any]:
-    default_group = str(CONFIG.get("default_group", "") or "")
+    default_group = effective_default_group()
     default_data = GROUPS_BY_KEY.get(default_group, {})
     return {
         "d": {
@@ -880,14 +1035,13 @@ def messages_payload() -> Dict[str, Any]:
 
 
 def bot_listener_payload() -> Dict[str, Any]:
-    bot = CONFIG.get("bot", {})
-    listen_group = str(bot.get("listen_group", "") or "")
+    listen_group = effective_listener_group()
     listen_group_data = GROUPS_BY_KEY.get(listen_group, {})
-    bot_enabled = as_bool(bot.get("enabled", True))
+    bot_enabled = effective_bot_enabled()
     provider_enabled = waha_enabled()
     session_ready = bool(SESSION.get("ready", False))
     listening = bot_enabled and provider_enabled and session_ready and bool(listen_group) and bool(listen_group_data)
-    wake_word = str(bot.get("wake_word") or "Mobert")
+    wake_word = effective_wake_word()
     if listening:
         text = f"{wake_word} lauscht in {listen_group} ({listen_group_data.get('subject', '')})."
     elif not bot_enabled:
@@ -907,6 +1061,7 @@ def bot_listener_payload() -> Dict[str, Any]:
             "text": text,
             "provider": PROVIDER_NAME,
             "group": {"alias": listen_group, "name": listen_group_data.get("subject", "")},
+            "input_module": "whatsapp_watchdog",
         }
     }
 
@@ -916,6 +1071,9 @@ def commands_payload() -> Dict[str, Any]:
         "d": {
             "version": BOT_COMMANDS_META.get("version", ""),
             "source": BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)),
+            "format": BOT_COMMANDS_META.get("format", "legacy"),
+            "modules": list(BOT_MODULES.keys()),
+            "flows": len(BOT_FLOWS),
             "valid": bool(BOT_COMMANDS_VALIDATION.get("valid", False)),
             "count": len(BOT_COMMANDS),
             "commands": [cmd.to_json() for cmd in BOT_COMMANDS],
@@ -925,11 +1083,10 @@ def commands_payload() -> Dict[str, Any]:
 
 
 def bot_payload() -> Dict[str, Any]:
-    bot = CONFIG.get("bot", {})
     listener = bot_listener_payload()["d"]
     return {
         "d": {
-            "enabled": as_bool(bot.get("enabled", True)),
+            "enabled": effective_bot_enabled(),
             "text": listener["text"],
             "listener": listener,
             "commands": {
@@ -1143,7 +1300,7 @@ def resolve_message_target(target: Any) -> Tuple[str, Optional[Dict[str, str]]]:
     else:
         value = str(target or "")
     if not value:
-        value = str(CONFIG.get("default_group", "") or "")
+        value = effective_default_group()
     group = resolve_group(value)
     chat_id = group["chatId"] if group else value.strip()
     if not chat_id:
@@ -1198,11 +1355,32 @@ def format_forwarded_message(source_topic: str, payload: str) -> str:
         return f"{source_topic}: {payload}"
 
 
+def flow_mqtt_watch_topics() -> List[str]:
+    patterns: List[str] = []
+    if not module_is_enabled("mqtt_watchdog"):
+        return patterns
+    for flow in BOT_FLOWS.values():
+        if not as_bool(flow.get("enabled", True)):
+            continue
+        for step in flow.get("steps", {}).values():
+            input_cfg = step.get("input", {})
+            if input_cfg.get("module") != "mqtt_watchdog":
+                continue
+            pattern = str(input_cfg.get("topic") or "").strip()
+            if pattern and pattern not in patterns:
+                patterns.append(pattern)
+    return patterns
+
+
 def rebuild_forward_subscriptions(client: mqtt.Client) -> None:
     for pattern in CONFIG.get("forward_topics", []) or []:
         if pattern and not pattern.startswith(MQTT_BASE_TOPIC + "/"):
             client.subscribe(pattern)
             log(f"Subscribed forward topic: {pattern}")
+    for pattern in flow_mqtt_watch_topics():
+        if pattern and not pattern.startswith(MQTT_BASE_TOPIC + "/"):
+            client.subscribe(pattern)
+            log(f"Subscribed flow MQTT watchdog topic: {pattern}")
 
 
 # ---------------------------------------------------------------------------
@@ -1352,8 +1530,34 @@ def handle_history_set(client: mqtt.Client, payload: str, mode: str) -> None:
 
 def handle_commands_renew(client: mqtt.Client) -> None:
     reload_bot_commands()
+    rebuild_forward_subscriptions(client)
     publish_bot_commands(client)
     publish_state(client, refresh_groups=False)
+
+
+def handle_commands_set_xml(client: mqtt.Client, payload: str) -> None:
+    # Allows replacing /data/bot_commands.xml via MQTT while keeping the XML
+    # parser safe: the payload must be well-formed and use a supported root.
+    xml_text = payload.strip()
+    if not xml_text:
+        raise RuntimeError("commands/set/xml requires an XML payload")
+    root = ET.fromstring(xml_text)
+    if root.tag not in {"mobertBotConfig", "mobertCommands"}:
+        raise RuntimeError(f"Unsupported bot XML root element: {root.tag}")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    BOT_COMMANDS_FILE.write_text(xml_text + "\n", encoding="utf-8")
+    reload_bot_commands()
+    rebuild_forward_subscriptions(client)
+    publish_bot_commands(client)
+    publish_state(client, refresh_groups=False)
+    publish_validation(
+        client,
+        topic("bot", "commands", "validation", "json"),
+        valid=True,
+        mode="set_xml",
+        accepted={"source": str(BOT_COMMANDS_FILE), "format": BOT_COMMANDS_META.get("format", "")},
+        remarks=["Bot-XML gespeichert und neu geladen"],
+    )
 
 
 def handle_outgoing_message(client: mqtt.Client, payload: str) -> None:
@@ -1489,17 +1693,17 @@ def extract_webhook_message(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def bot_status_text() -> str:
-    bot = CONFIG.get("bot", {})
-    default_group = CONFIG.get("default_group", "")
-    listen_group = bot.get("listen_group", "")
+    default_group = effective_default_group()
+    listen_group = effective_listener_group()
     return (
         "Mobert Status:\n"
         f"Session: {SESSION.get('name', '')} ({SESSION.get('status', '')})\n"
         f"Konto: {SESSION.get('account', '')}\n"
-        f"Bot aktiv: {as_bool(bot.get('enabled', True))}\n"
-        f"Startwort: {bot.get('wake_word', 'Mobert')}\n"
+        f"Bot aktiv: {effective_bot_enabled()}\n"
+        f"Startwort: {effective_wake_word()}\n"
         f"Lauschen: {listen_group} {group_subject(listen_group)}\n"
         f"Standardziel: {default_group} {group_subject(default_group)}\n"
+        f"XML-Format: {BOT_COMMANDS_META.get('format', 'legacy')}\n"
         f"Gruppen: {len(GROUPS_BY_KEY)}\n"
         f"Befehle: {len(BOT_COMMANDS)}"
     )
@@ -1507,8 +1711,8 @@ def bot_status_text() -> str:
 
 def bot_groups_text() -> str:
     lines = ["Mobert Gruppen:"]
-    default_group = str(CONFIG.get("default_group", "") or "")
-    listen_group = str(CONFIG.get("bot", {}).get("listen_group", "") or "")
+    default_group = effective_default_group()
+    listen_group = effective_listener_group()
     for key, group in GROUPS_BY_KEY.items():
         flags = []
         if key == default_group:
@@ -1520,57 +1724,318 @@ def bot_groups_text() -> str:
     return "\n".join(lines)
 
 
-def execute_bot_command(client: mqtt.Client, command_text: str) -> Tuple[str, str, bool]:
-    cmd, values = find_command(command_text)
-    if cmd is None:
-        return "unknown", "Unbekannter Mobert-Befehl. Schreibe: Mobert: ?", False
+def render_value(template_value: str, context: Dict[str, Any]) -> str:
+    rendered = template_value or ""
+    for key, value in context.items():
+        rendered = rendered.replace("{" + key + "}", str(value))
+    # Support simple dotted aliases used in the flow XML.
+    rendered = rendered.replace("{processing.result}", str(context.get("processing.result", "")))
+    return rendered
 
+
+def flow_step_matches_mqtt(step: Dict[str, Any], source_topic: str, payload: str) -> bool:
+    input_cfg = step.get("input", {})
+    expected_topic = str(input_cfg.get("topic") or "").strip()
+    if not expected_topic:
+        return False
+    if not mqtt.topic_matches_sub(expected_topic, source_topic):
+        return False
+    payload_equals = str(input_cfg.get("payload_equals") or "")
+    if payload_equals and payload != payload_equals:
+        return False
+    if as_bool(input_cfg.get("payload_not_empty", False)) and payload == "":
+        return False
+    return True
+
+
+def execute_output(client: mqtt.Client, output_cfg: Dict[str, Any], context: Dict[str, Any]) -> str:
+    module_id = output_cfg.get("module", "")
+    if module_id and not module_is_enabled(module_id):
+        return ""
+    output_type = output_cfg.get("type", "")
+    if module_id == "mqtt_output" and output_type == "publish":
+        mqtt_topic = render_value(str(output_cfg.get("topic") or ""), context)
+        payload_value = render_value(str(output_cfg.get("payload") or ""), context)
+        qos = int(output_cfg.get("qos", 0) or 0)
+        retain = as_bool(output_cfg.get("retain", False))
+        if not mqtt_topic:
+            raise RuntimeError("mqtt_output requires topic")
+        client.publish(mqtt_topic, payload_value, qos=qos, retain=retain)
+        return ""
+    if module_id == "whatsapp_output" and output_type == "send":
+        target = render_value(str(output_cfg.get("target") or ""), context)
+        if target == "default_group":
+            target = effective_default_group()
+        elif target in {"{replyTarget}", "replyTarget"}:
+            target = str(context.get("replyTarget", ""))
+        message = render_value(str(output_cfg.get("message") or ""), context)
+        if message.strip():
+            send_text(client, target, message, request_id=str(context.get("request_id", "bot")))
+        return message
+    # Unknown output modules are intentionally not executed. This keeps XML safe:
+    # only registered modules can perform actions.
+    log(f"Ignored unsupported output module={module_id} type={output_type}")
+    return ""
+
+
+def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str, Any], context: Dict[str, Any]) -> Tuple[bool, str]:
+    processing = step.get("processing", {})
+    mode = processing.get("mode", "passthrough")
+    try:
+        if mode in {"passthrough", "confirmation_result"}:
+            if mode == "confirmation_result":
+                contains = str(processing.get("error_payload_contains") or "")
+                payload = str(context.get("payload", ""))
+                if contains and contains.lower() in payload.lower():
+                    context["result"] = "error"
+            return True, ""
+        if mode == "local_reply":
+            template = str(processing.get("template") or "")
+            context["processing.result"] = command_help_text() if template == "{help}" else render_value(template, context)
+            return True, str(context.get("processing.result", ""))
+        if mode == "local_status":
+            context["processing.result"] = bot_status_text()
+            return True, str(context.get("processing.result", ""))
+        if mode == "local_groups":
+            context["processing.result"] = bot_groups_text()
+            return True, str(context.get("processing.result", ""))
+        if mode == "local_default_group":
+            value = effective_default_group()
+            context["processing.result"] = f"Standard-Zielgruppe: {value} {group_subject(value)}"
+            return True, str(context.get("processing.result", ""))
+        if mode == "set_module_property":
+            module_ref = str(processing.get("module_ref") or "")
+            property_name = str(processing.get("property") or "")
+            value = render_value(str(processing.get("value") or ""), context)
+            if module_ref == "whatsapp_watchdog" and property_name == "listenerGroup":
+                group = resolve_group(value)
+                if not group:
+                    context["processing.result"] = f"Unbekannte Gruppe: {value}"
+                    context["result"] = "error"
+                    return False, str(context["processing.result"])
+                CONFIG.setdefault("bot", {})["listen_group"] = group["key"]
+                if as_bool(processing.get("persist", False)):
+                    save_config(CONFIG)
+                publish_state(client, refresh_groups=False)
+                context["group"] = group["key"]
+                context["processing.result"] = f"Bot-Lauschgruppe gesetzt: {group['key']} {group['subject']}"
+                return True, str(context["processing.result"])
+            context["processing.result"] = f"Eigenschaft nicht unterstuetzt: {module_ref}.{property_name}"
+            context["result"] = "error"
+            return False, str(context["processing.result"])
+        context["processing.result"] = f"Processing-Modul noch nicht implementiert: {mode}"
+        context["result"] = "error"
+        return False, str(context["processing.result"])
+    except Exception as exc:
+        context["processing.result"] = str(exc)
+        context["result"] = "error"
+        return False, str(exc)
+
+
+def execute_flow_step(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str, Any], context: Dict[str, Any], result_filter: str = "") -> Tuple[bool, List[str]]:
+    accepted, processing_text = execute_processing(client, flow, step, context)
+    selected_result = result_filter or str(context.get("result", "success" if accepted else "error"))
+    messages: List[str] = []
+    for output_cfg in step.get("outputs", []) or []:
+        output_result = str(output_cfg.get("result") or "")
+        if output_result and output_result != selected_result:
+            continue
+        try:
+            message = execute_output(client, output_cfg, context)
+            if message:
+                messages.append(message)
+        except Exception as exc:
+            messages.append(f"Ausgabe fehlgeschlagen: {exc}")
+            accepted = False
+    if accepted and step.get("next_step"):
+        register_pending_confirmation(client, flow, step, context)
+    if not messages and processing_text:
+        messages.append(processing_text)
+    return accepted, messages
+
+
+def register_pending_confirmation(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str, Any], context: Dict[str, Any]) -> None:
+    next_id = str(step.get("next_step") or "")
+    next_step = flow.get("steps", {}).get(next_id)
+    if not next_step:
+        return
+    input_cfg = next_step.get("input", {})
+    if input_cfg.get("module") != "mqtt_watchdog":
+        return
+    timeout_seconds = int(input_cfg.get("timeout_seconds", 0) or 0)
+    pending_id = f"{flow['id']}:{next_id}:{time.time()}"
+    pending_context = dict(context)
+    pending = {"id": pending_id, "flow": flow, "step": next_step, "context": pending_context, "client": client}
+    def timeout_callback() -> None:
+        finish_pending_confirmation(pending_id, "timeout", "", "")
+    if timeout_seconds > 0:
+        pending["timer"] = threading.Timer(timeout_seconds, timeout_callback)
+        pending["timer"].daemon = True
+    with PENDING_CONFIRMATIONS_LOCK:
+        PENDING_CONFIRMATIONS.append(pending)
+    if pending.get("timer") is not None:
+        pending["timer"].start()
+    publish(client, topic("bot", "confirmations", "pending", "json"), {"d": pending_confirmations_payload()}, retain=False)
+
+
+def pending_confirmations_payload() -> List[Dict[str, Any]]:
+    with PENDING_CONFIRMATIONS_LOCK:
+        return [
+            {
+                "id": item.get("id", ""),
+                "flow": item.get("flow", {}).get("id", ""),
+                "step": item.get("step", {}).get("id", ""),
+                "topic": item.get("step", {}).get("input", {}).get("topic", ""),
+            }
+            for item in PENDING_CONFIRMATIONS
+        ]
+
+
+def finish_pending_confirmation(pending_id: str, result: str, source_topic: str, payload: str) -> bool:
+    pending: Optional[Dict[str, Any]] = None
+    with PENDING_CONFIRMATIONS_LOCK:
+        for index, item in enumerate(PENDING_CONFIRMATIONS):
+            if item.get("id") == pending_id:
+                pending = PENDING_CONFIRMATIONS.pop(index)
+                break
+    if pending is None:
+        return False
+    timer = pending.get("timer")
+    if timer is not None:
+        timer.cancel()
+    client = pending["client"]
+    flow = pending["flow"]
+    step = pending["step"]
+    context = dict(pending["context"])
+    context.update({"topic": source_topic, "payload": payload, "mqttTopic": source_topic, "mqttPayload": payload, "result": result})
+    if result != "timeout":
+        execute_processing(client, flow, step, context)
+        result = str(context.get("result", result))
+    for output_cfg in step.get("outputs", []) or []:
+        output_result = str(output_cfg.get("result") or "")
+        if output_result and output_result != result:
+            continue
+        execute_output(client, output_cfg, context)
+    publish(client, topic("bot", "confirmations", "pending", "json"), {"d": pending_confirmations_payload()}, retain=False)
+    return True
+
+
+def handle_flow_mqtt_event(client: mqtt.Client, source_topic: str, payload: str) -> bool:
+    handled = False
+    # Confirmation steps have priority because they belong to a command that is already in progress.
+    matching_pending: List[str] = []
+    with PENDING_CONFIRMATIONS_LOCK:
+        for item in PENDING_CONFIRMATIONS:
+            if flow_step_matches_mqtt(item.get("step", {}), source_topic, payload):
+                matching_pending.append(str(item.get("id")))
+    for pending_id in matching_pending:
+        handled = finish_pending_confirmation(pending_id, "success", source_topic, payload) or handled
+
+    # MQTT watchdog start inputs can also create flows directly, e.g. automatic error or pause notifications.
+    for flow in BOT_FLOWS.values():
+        if not as_bool(flow.get("enabled", True)):
+            continue
+        for step in flow.get("steps", {}).values():
+            input_cfg = step.get("input", {})
+            if input_cfg.get("module") != "mqtt_watchdog" or input_cfg.get("type") == "confirmation":
+                continue
+            if flow_step_matches_mqtt(step, source_topic, payload):
+                context = {
+                    "topic": source_topic,
+                    "payload": payload,
+                    "mqttTopic": source_topic,
+                    "mqttPayload": payload,
+                    "replyTarget": effective_default_group(),
+                    "request_id": f"mqtt:{flow.get('id', '')}",
+                }
+                execute_flow_step(client, flow, step, context)
+                handled = True
+    return handled
+
+
+def execute_legacy_command_response(client: mqtt.Client, cmd: BotCommand, values: Dict[str, str]) -> Tuple[str, bool]:
     if cmd.action_type == "local_reply":
         if cmd.response == "{help}":
-            return cmd.command_id, command_help_text(), True
-        return cmd.command_id, interpolate_template(cmd.response, values), True
+            return command_help_text(), True
+        return interpolate_template(cmd.response, values), True
 
     if cmd.action_type == "local_status":
-        return cmd.command_id, bot_status_text(), True
+        return bot_status_text(), True
 
     if cmd.action_type == "local_groups":
-        return cmd.command_id, bot_groups_text(), True
+        return bot_groups_text(), True
 
     if cmd.action_type == "local_default_group":
-        value = CONFIG.get("default_group", "")
-        return cmd.command_id, f"Standard-Zielgruppe: {value} {group_subject(value)}", True
+        value = effective_default_group()
+        return f"Standard-Zielgruppe: {value} {group_subject(value)}", True
 
     if cmd.action_type == "local_set_listener_group":
         group_value = values.get("group", "")
         group = resolve_group(group_value)
         if not group:
-            return cmd.command_id, f"Unbekannte Gruppe: {group_value}", False
+            return f"Unbekannte Gruppe: {group_value}", False
         CONFIG.setdefault("bot", {})["listen_group"] = group["key"]
         save_config(CONFIG)
         publish_state(client, refresh_groups=False)
-        return cmd.command_id, f"Bot-Lauschgruppe gesetzt: {group['key']} {group['subject']}", True
+        return f"Bot-Lauschgruppe gesetzt: {group['key']} {group['subject']}", True
 
     if cmd.action_type == "mqtt_publish":
         mqtt_payload = interpolate_template(cmd.mqtt_payload, values)
         client.publish(cmd.mqtt_topic, mqtt_payload, qos=cmd.mqtt_qos, retain=cmd.mqtt_retain)
         response = interpolate_template(cmd.immediate_confirmation, values) or "Befehl wurde an MQTT gesendet."
         if cmd.wait_confirmation.get("enabled"):
-            response += "\nHinweis: Warten auf MQTT-Bestaetigung ist vorbereitet, aber in diesem Modul noch nicht aktiv."
-        return cmd.command_id, response, True
+            response += "\nHinweis: Warten auf MQTT-Bestaetigung ist nur in der Flow-XML aktiv."
+        return response, True
 
-    return cmd.command_id, f"Aktionstyp noch nicht implementiert: {cmd.action_type}", False
+    return f"Aktionstyp noch nicht implementiert: {cmd.action_type}", False
+
+
+def execute_bot_command(client: mqtt.Client, command_text: str, context: Dict[str, Any]) -> Tuple[str, str, bool]:
+    cmd, values = find_command(command_text)
+    if cmd is None:
+        response = f"Unbekannter Mobert-Befehl. Schreibe: {effective_wake_word()}: ?"
+        send_text(client, context.get("replyTarget", ""), response, request_id="bot")
+        return "unknown", response, False
+    context.update(values)
+    context.setdefault("command", cmd.trigger)
+    context.setdefault("command_id", cmd.command_id)
+    if cmd.action_type == "flow" and cmd.flow_id in BOT_FLOWS:
+        flow = BOT_FLOWS[cmd.flow_id]
+        step = flow.get("steps", {}).get(cmd.step_id or "start")
+        if not step:
+            response = f"Flow-Schritt nicht gefunden: {cmd.flow_id}/{cmd.step_id}"
+            send_text(client, context.get("replyTarget", ""), response, request_id="bot")
+            return cmd.command_id, response, False
+        accepted, messages = execute_flow_step(client, flow, step, context)
+        response_text = "\n".join([m for m in messages if m])
+        return cmd.command_id, response_text, accepted
+
+    response_text, accepted = execute_legacy_command_response(client, cmd, values)
+    send_text(client, context.get("replyTarget", ""), response_text, request_id="bot")
+    return cmd.command_id, response_text, accepted
 
 
 def parse_wake_command(text: str, wake_word: str) -> Optional[str]:
     stripped = text.strip()
     prefix = wake_word.strip()
-    if not stripped.lower().startswith(prefix.lower()):
-        return None
+    if not prefix:
+        return stripped or "?"
+    wake_cfg = module_config("whatsapp_watchdog").get("wakeWord") if BOT_MODULES else {}
+    case_sensitive = as_bool(wake_cfg.get("caseSensitive", False)) if isinstance(wake_cfg, dict) else False
+    if case_sensitive:
+        if not stripped.startswith(prefix):
+            return None
+    else:
+        if not stripped.lower().startswith(prefix.lower()):
+            return None
     remainder = stripped[len(prefix):].lstrip()
-    # The colon is intentionally required: "Mobert: Status".
-    if not remainder.startswith(":"):
-        return None
-    return remainder[1:].strip() or "?"
+    syntax = str(wake_cfg.get("syntax", "colon") if isinstance(wake_cfg, dict) else "colon")
+    if syntax == "colon":
+        # The colon is intentionally required: "Mobert: Status".
+        if not remainder.startswith(":"):
+            return None
+        return remainder[1:].strip() or "?"
+    return remainder.strip() or "?"
 
 
 def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
@@ -1599,39 +2064,34 @@ def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "fromMe"}
 
-    bot = CONFIG.get("bot", {})
-    if not as_bool(bot.get("enabled", True)):
+    if not effective_bot_enabled():
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "bot disabled"}
 
-    listen_key = str(bot.get("listen_group", "") or "")
+    listen_key = effective_listener_group()
     listen_chat_id = group_chat_id(listen_key)
     if not listen_chat_id or message["chatId"] != listen_chat_id:
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "chat not configured listen group"}
 
-    wake_word = str(bot.get("wake_word") or "Mobert")
+    wake_word = effective_wake_word()
     command_text = parse_wake_command(message["text"], wake_word)
     if command_text is None:
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "wake word or colon not found"}
 
-    command_id, response_text, accepted = execute_bot_command(client, command_text)
+    context = {
+        "replyTarget": message["chatId"],
+        "chatId": message["chatId"],
+        "chatAlias": chat_alias,
+        "sender": message.get("sender", ""),
+        "senderMasked": mask_chat_id(message.get("sender", "")),
+        "rawText": message["text"],
+        "request_id": "bot",
+    }
+    command_id, response_text, accepted = execute_bot_command(client, command_text, context)
     incoming_entry["bot"] = {"matched": True, "command": command_id, "accepted": accepted}
     add_message_history(client, incoming_entry)
-
-    result = waha_post("/api/sendText", {"session": SESSION.get("name") or message.get("session"), "chatId": message["chatId"], "text": response_text})
-    outgoing_entry = {
-        "timestamp": now_iso(),
-        "direction": "out",
-        "message_id": str(result.get("id") or result.get("messageId") or ""),
-        "request_id": "bot",
-        "chat": chat,
-        "text": response_text,
-        "status": "sent",
-        "error": None,
-    }
-    add_message_history(client, outgoing_entry)
 
     event = {
         "time": now_iso(),
@@ -1716,6 +2176,7 @@ def on_connect(client: mqtt.Client, userdata: Any, flags: Any, reason_code: Any,
     client.subscribe(topic("bot", "set", "session", "json"))
     client.subscribe(topic("bot", "set", "persistent", "json"))
     client.subscribe(topic("bot", "commands", "set", "renew", "json"))
+    client.subscribe(topic("bot", "commands", "set", "xml"))
 
     # Optional internal forwarding configuration. This has no public legacy topic,
     # but can still be controlled via config.json mounted into /data.
@@ -1751,8 +2212,11 @@ def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> Non
             handle_bot_set(client, payload, "persistent")
         elif mqtt_topic == topic("bot", "commands", "set", "renew", "json"):
             handle_commands_renew(client)
+        elif mqtt_topic == topic("bot", "commands", "set", "xml"):
+            handle_commands_set_xml(client, payload)
         elif not mqtt_topic.startswith(MQTT_BASE_TOPIC + "/"):
-            handle_forwarded_mqtt(client, mqtt_topic, payload)
+            if not handle_flow_mqtt_event(client, mqtt_topic, payload):
+                handle_forwarded_mqtt(client, mqtt_topic, payload)
     except Exception as exc:
         publish_error(client, mqtt_topic, exc)
 

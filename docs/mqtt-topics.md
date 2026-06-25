@@ -118,6 +118,7 @@ messenger/
     │   ├── version
     │   ├── source
     │   ├── set/
+    │   │   ├── xml
     │   │   └── renew/
     │   │       └── json
     │   └── validation/
@@ -129,6 +130,9 @@ messenger/
     │       └── json
     ├── validation/
     │   └── json
+    ├── confirmations/
+    │   └── pending/
+    │       └── json
     └── events/
         └── json
 ```
@@ -346,4 +350,38 @@ The WhatsApp command syntax is intentionally colon-based:
 ```text
 Mobert: Status
 Mobert: ?
+```
+
+## Mobert XML flow engine
+
+`messenger/bot/commands/#` exposes the loaded XML and the parsed flow command list. The controller accepts both the legacy `<mobertCommands>` format and the new `<mobertBotConfig>` flow format. The new format defines central modules and flow steps:
+
+```text
+modules: whatsapp_watchdog, mqtt_watchdog, whatsapp_output, mqtt_output
+flow step: input -> processing -> output
+```
+
+Replace the XML file at runtime:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+```
+
+Reload the XML from `/data/bot_commands.xml`:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
+```
+
+Existing Bot settings remain available and override XML defaults where applicable:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/bot/set/session/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
+mosquitto_pub -h Mosquitto -t messenger/bot/set/persistent/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
+```
+
+MQTT confirmation steps are published while pending under:
+
+```text
+messenger/bot/confirmations/pending/json
 ```

@@ -1,19 +1,17 @@
-BL_Add status description and webhook alias documentation
+BL_Add XML driven Mobert flow engine
 Date: 2026-06-25
 Summary:
-- Added a retained non-secret MQTT status description with WAHA API URL, dashboard URL and credential-location hints.
-- Added the same deployment description to messenger/status/json under d.description.
-- Added a Docker Compose override with the webhook-safe alias waha-mqtt-controller.
-- Updated the Compose example to use the alias because WAHA rejects webhook hostnames with underscores.
-- Added source comments and documentation for the WAHA webhook alias and credential handling.
-- Kept secrets out of MQTT; the dashboard password and WAHA API key remain referenced only by variable name and .env path.
+- Reworked the Mobert command loader to support the new mobertBotConfig flow XML with central watchdog and output modules.
+- Kept legacy mobertCommands XML compatibility so existing command files can still be loaded.
+- Added flow execution for head/input/processing/output steps, including WhatsApp replies, MQTT publishes, local status/actions and listener group updates.
+- Added MQTT confirmation handling with pending confirmation status and timeout/result outputs.
+- Added runtime XML replacement through messenger/bot/commands/set/xml while keeping existing MQTT settings topics for WAHA, groups, history and Bot configuration.
+- Updated the default bot_commands.example.xml, README, MQTT topic documentation and changelog.
 Changed files:
-- .env.example
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - README.md
+- bridge/bot_commands.example.xml
+- bridge/config.example.json
 - bridge/controller.py
-- compose.example.yaml
-- compose.override.yaml
 - docs/mqtt-topics.md
-- docs/openmower-deploy.md

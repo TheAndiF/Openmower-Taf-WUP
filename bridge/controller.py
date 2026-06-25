@@ -1876,54 +1876,56 @@ def format_wifi_percent(value: Any) -> str:
         return str(value)
 
 
+def format_percent_fraction(value: Any) -> str:
+    if value is None or value == "":
+        return "unbekannt"
+    try:
+        number = float(str(value).replace(",", "."))
+        if 0 <= number <= 1:
+            number *= 100
+        return f"{number:.0f} %"
+    except Exception:
+        return str(value)
+
+
+def battery_text(robot_state: Dict[str, Any]) -> str:
+    battery = format_percent_fraction(robot_state.get("battery_percentage"))
+    charging = parse_bool_like(robot_state.get("is_charging"))
+    if charging is True:
+        return f"{battery} (lädt)"
+    if charging is False:
+        return f"{battery} (lädt nicht)"
+    return battery
+
+
 def current_area_text(robot_state: Dict[str, Any]) -> str:
-    state_name = str(robot_state.get("current_state") or "").strip()
     area_id = str(robot_state.get("current_area_id") or "").strip()
     area_number = str(robot_state.get("current_area") or "").strip()
-    is_charging = parse_bool_like(robot_state.get("is_charging"))
-    # OpenMower publishes no explicit dock flag in robot_state/json. Charging is
-    # the safest dock indicator. If the mower is IDLE without an area id, present
-    # it as dock/idle so the WhatsApp status remains human-readable.
-    if is_charging is True:
-        return "im Dock (lädt)"
-    if state_name.upper() == "IDLE" and not area_id and area_number in {"", "-1", "0"}:
-        return "im Dock (lädt nicht)"
     if area_id:
         return f"Fläche {area_id}"
     if area_number and area_number not in {"-1", "0"}:
         return f"Fläche {area_number}"
-    if state_name:
-        return f"keine Fläche ({state_name})"
-    return "unbekannt"
+    return "keine aktive Fläche"
 
 
 def bot_status_text() -> str:
-    default_group = effective_default_group()
-    listen_group = effective_listener_group()
     robot_state = dict(OPENMOWER_STATE.get("robot_state") or {})
     wifi_value = OPENMOWER_STATE.get("wifi_percent")
-    charging = parse_bool_like(robot_state.get("is_charging"))
-    charging_text = "laden" if charging is True else "nicht laden" if charging is False else "unbekannt"
     state_name = str(robot_state.get("current_state") or "unbekannt")
     emergency = parse_bool_like(robot_state.get("emergency"))
-    error_text = "ja" if emergency is True else "nein" if emergency is False else "unbekannt"
-    return (
-        "Mobert Status:\n"
-        f"Zeitstempel: {now_iso()}\n"
-        f"MQTT-Verbindung: {mqtt_connection_text()}\n"
-        f"WLAN-Stärke: {format_wifi_percent(wifi_value)}\n"
-        f"OpenMower-Zustand: {state_name}\n"
-        f"Position/Fläche: {current_area_text(robot_state)}\n"
-        f"Laden: {charging_text}\n"
-        f"Fehler/Notfall: {error_text}\n"
-        f"Session: {SESSION.get('name', '')} ({SESSION.get('status', '')})\n"
-        f"Bot aktiv: {effective_bot_enabled()}\n"
-        f"Startwort: {effective_wake_word()}\n"
-        f"Lauschen: {listen_group} {group_subject(listen_group)}\n"
-        f"Standardziel: {default_group} {group_subject(default_group)}\n"
-        f"Gruppen: {len(GROUPS_BY_KEY)}\n"
-        f"Befehle: {len(BOT_COMMANDS)}"
-    )
+    lines = [
+        "Mobert Status",
+        "",
+        f"Zeit: {now_iso()}",
+        f"Status: {state_name}",
+        f"Fläche: {current_area_text(robot_state)}",
+        f"Akku: {battery_text(robot_state)}",
+        f"WLAN: {format_wifi_percent(wifi_value)}",
+        f"MQTT: {mqtt_connection_text()}",
+    ]
+    if emergency is True:
+        lines.append("Fehler: Emergency/Notfall aktiv")
+    return "\n".join(lines)
 
 
 def bot_groups_text() -> str:
@@ -1986,6 +1988,10 @@ def comparable_value(value: Any) -> str:
 def condition_matches_value(actual: Any, expected: Optional[str]) -> bool:
     if expected is None:
         return True
+    actual_bool = parse_bool_like(actual)
+    expected_bool = parse_bool_like(expected)
+    if expected_bool is not None and actual_bool is not None:
+        return actual_bool == expected_bool
     actual_text = comparable_value(actual).lower()
     expected_text = comparable_value(expected).lower()
     return actual_text == expected_text
@@ -2004,13 +2010,21 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
     OPENMOWER_STATE["last_mqtt_topic"] = source_topic
     OPENMOWER_STATE["last_mqtt_payload"] = payload
     OPENMOWER_STATE["last_mqtt_time"] = now_iso()
-    if source_topic == "robot_state/json":
+    if source_topic == "robot_state" or mqtt.topic_matches_sub("robot_state/#", source_topic):
         root = unwrap_data_root(parsed)
         if isinstance(root, dict):
             OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
             OPENMOWER_STATE["robot_state"] = root
             OPENMOWER_STATE["robot_state_time"] = now_iso()
-    elif source_topic == "sensors/om_system_wifi_signal_percent/data":
+    elif source_topic == "sensors/om_system_wifi_signal_percent" or mqtt.topic_matches_sub("sensors/om_system_wifi_signal_percent/#", source_topic):
+        # Some MQTT exporters publish a plain value on /data and others publish
+        # JSON on a sibling topic.  Cache the numeric value when possible.
+        root = unwrap_data_root(parsed)
+        if isinstance(root, dict):
+            for candidate in ("data", "value", "percent", "wifi_percent"):
+                if candidate in root:
+                    payload = str(root[candidate])
+                    break
         OPENMOWER_STATE["wifi_percent"] = payload
         OPENMOWER_STATE["wifi_time"] = now_iso()
 
@@ -2033,8 +2047,9 @@ def enrich_mqtt_context(context: Dict[str, Any], source_topic: str, payload: str
                 context[key] = value
                 context[f"json.{key}"] = value
         context["areaText"] = current_area_text(root)
+        context["batteryText"] = battery_text(root)
         context["chargingText"] = "lädt" if parse_bool_like(root.get("is_charging")) is True else "lädt nicht" if parse_bool_like(root.get("is_charging")) is False else "unbekannt"
-        context["errorText"] = "ja" if parse_bool_like(root.get("emergency")) is True else "nein" if parse_bool_like(root.get("emergency")) is False else "unbekannt"
+        context["errorText"] = "Emergency/Notfall aktiv" if parse_bool_like(root.get("emergency")) is True else "kein Fehler" if parse_bool_like(root.get("emergency")) is False else "unbekannt"
     if isinstance(previous_root, dict):
         for key, value in previous_root.items():
             if isinstance(value, (str, int, float, bool)) or value is None:

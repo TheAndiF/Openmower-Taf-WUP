@@ -88,3 +88,13 @@
 - Added WAHA session and group discovery.
 - Added default group selection via MQTT.
 - Added manual WhatsApp sending via MQTT.
+
+## 2026-06-25 - Statusanzeige kompakt und ROS-MQTT-Topics verbreitert
+
+- Statusausgabe von `Mobert: Status` auf eine kompakte WhatsApp-Ansicht umgestellt.
+- Akku und Ladezustand werden zusammen ausgegeben, z. B. `95 % (lädt)`.
+- Dock wird nicht mehr als eigener Status ausgegeben; Laden wird ausschließlich über `is_charging` angezeigt.
+- Fehlerzeile erscheint im Status nur noch bei aktivem Emergency-/Notfallzustand.
+- ROS-MQTT-Erkennung akzeptiert jetzt `robot_state` sowie `robot_state/#`.
+- WLAN-Cache akzeptiert jetzt `sensors/om_system_wifi_signal_percent` sowie Untertopics wie `/data`.
+- Standard-WhatsApp-Meldungen für Losfahren, Laden beendet und Fehler wurden auf kompakte Texte angepasst.

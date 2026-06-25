@@ -338,3 +338,27 @@ Reload the Mobert XML from disk:
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 ```
+
+## Kompakter ROS-MQTT-Status in WhatsApp
+
+`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `robot_state` bzw. `robot_state/#` und `sensors/om_system_wifi_signal_percent/#`. Die Ausgabe ist bewusst kurz gehalten:
+
+```text
+Mobert Status
+
+Zeit: 2026-06-25T18:55:00.503419+00:00
+Status: IDLE
+Fläche: keine aktive Fläche
+Akku: 95 % (lädt)
+WLAN: 82 %
+MQTT: verbunden
+```
+
+Die Zeile `Fehler:` erscheint nur, wenn `robot_state.emergency` aktiv ist. Der Dock-Zustand wird nicht mehr separat ausgegeben; Laden wird über `robot_state.is_charging` als Teil der Akku-Zeile dargestellt.
+
+Die Standard-XML enthält aktivierte MQTT-Watchdog-Flows für:
+
+- OpenMower fährt los: Wechsel von `current_state=IDLE` zu einem anderen Zustand.
+- Laden beendet: Wechsel von `is_charging=true` zu `false`.
+- Fehler erkannt: Wechsel von `emergency` nicht aktiv zu aktiv.
+

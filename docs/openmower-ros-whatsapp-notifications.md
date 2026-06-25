@@ -1,50 +1,51 @@
-# Openmower-Taf-WUP - ROS MQTT WhatsApp notifications
+# Openmower-Taf-WUP - ROS-MQTT-WhatsApp-Meldungen
+
+Stand: 2026-06-25  
+Status: Entwurf  
+Version: v0.2
 
 ## Zweck
 
-Diese Erweiterung nutzt ROS/OpenMower-MQTT-Daten, um Mobert standardmaessig ueber WhatsApp melden zu lassen, wenn der Rasenmaeher losfaehrt, das Laden beendet wurde oder ein Fehler/Emergency erkannt wird.
+Die Bridge meldet wichtige OpenMower-Ereignisse automatisch per WhatsApp und beantwortet `Mobert: Status` mit einer kompakten Statusmeldung. Die Werte stammen aus ROS-MQTT.
 
-## Aktivierte XML-Flows
+## Verwendete ROS-MQTT-Quellen
 
-| Flow | Eingang | Bedingung | Ausgabe |
-|---|---|---|---|
-| `openmower_drives_off_notification` | `mqtt_watchdog` | `robot_state/json`: `current_state` wechselt von `IDLE` auf einen anderen Zustand. | WhatsApp an `default_group`. |
-| `openmower_charging_finished_notification` | `mqtt_watchdog` | `robot_state/json`: `is_charging` wechselt von `true` auf `false`. | WhatsApp an `default_group`. |
-| `openmower_error_notification` | `mqtt_watchdog` | `robot_state/json`: `emergency` wechselt auf `true`. | WhatsApp an `default_group`. |
-| `openmower_wifi_cache` | `mqtt_watchdog` | `sensors/om_system_wifi_signal_percent/data` mit Payload. | Interner Cache fuer Status und Meldungen. |
+| Quelle | Verwendung |
+|---|---|
+| `robot_state` und `robot_state/#` | Zustand, Fläche, Akku, Laden, Emergency |
+| `sensors/om_system_wifi_signal_percent` und `sensors/om_system_wifi_signal_percent/#` | WLAN-Stärke in Prozent |
 
-## Statusanzeige
+## Statusausgabe
 
-`Mobert: Status` enthaelt nun:
-
-- Zeitstempel
-- MQTT-Verbindung
-- WLAN-Staerke in Prozent
-- OpenMower-Zustand
-- aktuelle Flaeche oder Dock-Text
-- Ladezustand: laden / nicht laden / unbekannt
-- Fehler/Emergency: ja / nein / unbekannt
-
-## Topic-Prefix
-
-Die XML verwendet standardmaessig unpraefixte OpenMower-Themen:
+Beispiel:
 
 ```text
-robot_state/json
-sensors/om_system_wifi_signal_percent/data
+Mobert Status
+
+Zeit: 2026-06-25T18:55:00.503419+00:00
+Status: IDLE
+Fläche: keine aktive Fläche
+Akku: 95 % (lädt)
+WLAN: 82 %
+MQTT: verbunden
 ```
 
-Wenn OpenMower mit `OM_MQTT_TOPIC_PREFIX=openmower` laeuft, muessen die XML-Topics entsprechend auf diese Werte geaendert werden:
+Die Akku-Zeile kombiniert `battery_percentage` und `is_charging`. Werte zwischen 0 und 1 werden als Prozentwert interpretiert. `is_charging=1` wird als `(lädt)` dargestellt, `is_charging=0` als `(lädt nicht)`.
 
-```text
-openmower/robot_state/json
-openmower/sensors/om_system_wifi_signal_percent/data
-```
+Der Begriff Dock wird nicht mehr automatisch verwendet. Wenn keine aktive Fläche vorhanden ist, wird `keine aktive Fläche` angezeigt. Ob geladen wird, steht ausschließlich in der Akku-Zeile.
 
-## Reload
+Die Zeile `Fehler:` wird nur ergänzt, wenn `emergency` aktiv ist.
 
-Nach Aenderungen an `/data/bot_commands.xml`:
+## Automatische WhatsApp-Meldungen
 
-```bash
-mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
-```
+Standardmäßig aktivierte Flows:
+
+| Flow | Auslöser | Nachricht |
+|---|---|---|
+| `openmower_drives_off_notification` | `current_state` wechselt von `IDLE` auf einen anderen Zustand | OpenMower fährt los |
+| `openmower_charging_finished_notification` | `is_charging` wechselt von aktiv auf inaktiv | Laden beendet |
+| `openmower_error_notification` | `emergency` wird aktiv | Fehler/Emergency erkannt |
+
+## Hinweise
+
+Die Flow-XML nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Watchdog und MQTT-Output. Die ROS-MQTT-Topics werden über aktivierte MQTT-Watchdog-Flows abonniert. Bestehende MQTT-Konfigurationsbefehle bleiben weiterhin gültig.

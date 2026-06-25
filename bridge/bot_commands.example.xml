@@ -409,7 +409,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>sensors/om_system_wifi_signal_percent/data</topic>
+            <topic>sensors/om_system_wifi_signal_percent/#</topic>
             <payloadNotEmpty>true</payloadNotEmpty>
           </expect>
         </input>
@@ -428,7 +428,7 @@
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>robot_state/#</topic>
             <json>
               <field name="current_state" notEquals="IDLE" previousEquals="IDLE" />
               <field name="emergency" notEquals="true" />
@@ -441,11 +441,12 @@
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
           <message>🚜 OpenMower fährt los.
-Zeitstempel: {timestamp}
-Zustand: {current_state}
-Position/Fläche: {areaText}
-WLAN-Stärke: {wifi_percent}
-MQTT-Verbindung: {mqttConnection}</message>
+Zeit: {timestamp}
+Status: {current_state}
+Fläche: {areaText}
+Akku: {batteryText}
+WLAN: {wifi_percent}
+MQTT: {mqttConnection}</message>
         </output>
       </step>
     </flow>
@@ -460,7 +461,7 @@ MQTT-Verbindung: {mqttConnection}</message>
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>robot_state/#</topic>
             <json>
               <field name="is_charging" equals="false" previousEquals="true" />
             </json>
@@ -472,11 +473,12 @@ MQTT-Verbindung: {mqttConnection}</message>
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
           <message>🔋 Laden beendet.
-Zeitstempel: {timestamp}
-Position/Fläche: {areaText}
-Laden: {chargingText}
-WLAN-Stärke: {wifi_percent}
-MQTT-Verbindung: {mqttConnection}</message>
+Zeit: {timestamp}
+Status: {current_state}
+Fläche: {areaText}
+Akku: {batteryText}
+WLAN: {wifi_percent}
+MQTT: {mqttConnection}</message>
         </output>
       </step>
     </flow>
@@ -491,7 +493,7 @@ MQTT-Verbindung: {mqttConnection}</message>
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
-            <topic>robot_state/json</topic>
+            <topic>robot_state/#</topic>
             <json>
               <field name="emergency" equals="true" previousNotEquals="true" />
             </json>
@@ -503,12 +505,13 @@ MQTT-Verbindung: {mqttConnection}</message>
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
           <message>⚠️ OpenMower Fehler/Emergency erkannt.
-Zeitstempel: {timestamp}
-Zustand: {current_state}
-Position/Fläche: {areaText}
-Laden: {chargingText}
-WLAN-Stärke: {wifi_percent}
-MQTT-Verbindung: {mqttConnection}</message>
+Zeit: {timestamp}
+Status: {current_state}
+Fläche: {areaText}
+Akku: {batteryText}
+WLAN: {wifi_percent}
+MQTT: {mqttConnection}
+Fehler: {errorText}</message>
         </output>
       </step>
     </flow>

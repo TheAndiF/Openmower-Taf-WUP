@@ -409,3 +409,25 @@ Enabled default flows:
 | `openmower_wifi_cache` | WLAN payload is received. | Internal cache update for status output. |
 
 The `Mobert: Status` reply contains a timestamp, MQTT connection state, WLAN strength, OpenMower state, area/dock/charging text and error/emergency status.
+
+## ROS-MQTT-Statusquellen für Mobert
+
+Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Meldungen aus:
+
+| Topic/Filter | Zweck |
+|---|---|
+| `robot_state` | primäre OpenMower-Statusmeldung, wenn der MQTT-Exporter direkt auf `robot_state` veröffentlicht |
+| `robot_state/#` | alternative Untertopics, z. B. `robot_state/json` |
+| `sensors/om_system_wifi_signal_percent` | WLAN-Signalstärke, wenn der Sensor direkt auf dem Sensortopic veröffentlicht |
+| `sensors/om_system_wifi_signal_percent/#` | alternative Untertopics, z. B. `/data` oder `/json` |
+
+Wichtige Felder aus `robot_state`:
+
+| Feld | Verwendung |
+|---|---|
+| `current_state` | Statuszeile und Losfahr-Erkennung |
+| `current_area` / `current_area_id` | Flächenanzeige |
+| `battery_percentage` | Akkustand, Werte 0..1 werden automatisch in Prozent umgerechnet |
+| `is_charging` | Ladezustand in der Akku-Zeile, z. B. `95 % (lädt)` |
+| `emergency` | Fehler-/Notfall-Erkennung |
+

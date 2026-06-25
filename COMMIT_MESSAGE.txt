@@ -1,15 +1,17 @@
-BL_Add central WhatsApp module reference
+BL_Update compact ROS MQTT status notifications
 Date: 2026-06-25
 Summary:
-- Added a central whatsappModule XML configuration for the shared WAHA session, default group, listener group and wake word.
-- Updated whatsapp_watchdog and whatsapp_output to reference the central WhatsApp module instead of duplicating session and routing settings.
-- Extended the flow XML parser to resolve moduleRef entries and merge referenced module settings safely.
-- Added optional WAHA session selection through existing MQTT WAHA set topics.
+- Updated Mobert status output to a compact WhatsApp-friendly format.
+- Combined battery percentage and charging state in one line.
+- Removed dock wording from the standard status and notification texts.
+- Added broader ROS MQTT topic handling for robot_state and WiFi signal topics.
+- Updated default flow XML notifications for mower start, charging finished, and emergency errors.
+- Documented the ROS MQTT status mapping and notification behavior.
 Changed files:
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - README.md
 - bridge/bot_commands.example.xml
-- bridge/config.example.json
 - bridge/controller.py
 - docs/mqtt-topics.md
+- docs/openmower-ros-whatsapp-notifications.md

@@ -1,3 +1,13 @@
+# Changelog
+
+## 2026-06-25 - v0.1 - Package hygiene
+
+- Added `.git/` to `.gitignore`.
+- Removed local `.git/` metadata from the deliverable package.
+- Removed Python cache files and `__pycache__` directories from the deliverable package.
+- Kept `controller_data/bot_commands.xml` included intentionally because it is the active Flow XML configuration.
+- Added `docs/package-hygiene.md` with cleanup and verification steps.
+
 ## 2026-06-25 - Status-Frische, Stop-Befehl und Nachrichtenhistorie
 
 ## v0.2 - 2026-06-25 - Include active Flow XML in controller data

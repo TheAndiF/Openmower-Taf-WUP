@@ -1,11 +1,13 @@
-BL_Include active Flow XML in controller data
+BL_Clean package hygiene
 Date: 2026-06-25
 Summary:
-- Added the current Mobert Flow XML as controller_data/bot_commands.xml for direct deployment into the mounted controller data volume.
-- Kept the packaged bridge/bot_commands.example.xml as the synchronized default.
-- Updated README and CHANGELOG with deployment notes for replacing older legacy XML files.
+- Added .git/ to .gitignore to prevent local Git metadata from being packaged.
+- Removed local Git metadata and Python cache files from the deliverable package.
+- Kept controller_data/bot_commands.xml included intentionally as the active Flow XML configuration.
+- Added documentation for package cleanup and verification steps.
 Changed files:
-- controller_data/bot_commands.xml
-- README.md
+- .gitignore
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
+- README.md
+- docs/package-hygiene.md

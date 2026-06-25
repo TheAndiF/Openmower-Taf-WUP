@@ -371,3 +371,7 @@ Die Standard-XML enthält aktivierte MQTT-Watchdog-Flows für:
 
 Ausgehende WhatsApp-Nachrichten werden durch `send_text()` als `direction: out` im Ringspeicher `messenger/waha/messages/history/json` dokumentiert. WAHA-Webhook-Echos von selbst gesendeten Nachrichten werden ebenfalls als ausgehend erkannt und per Message-ID dedupliziert, soweit WAHA eine ID liefert.
 
+
+## Paketbereinigung
+
+Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cachedateien. `controller_data/bot_commands.xml` bleibt bewusst enthalten, weil diese Datei die aktive Flow-XML fuer die Bridge bereitstellt. Weitere Details stehen in `docs/package-hygiene.md`.

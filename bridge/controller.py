@@ -579,6 +579,14 @@ OPENMOWER_STATE: Dict[str, Any] = {
     "last_mqtt_time": "",
 }
 MQTT_TOPIC_CACHE: Dict[str, Dict[str, Any]] = {}
+OPENMOWER_STATE_LOCK = threading.Lock()
+OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
+
+# Status requests wait only briefly for fresh ROS-MQTT data.  This avoids
+# "unbekannt" values when the command arrives shortly before the next
+# robot_state/json or WLAN sample, but it still replies quickly if ROS-MQTT
+# is quiet.
+STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
 
 
 def ensure_default_bot_commands_file() -> None:
@@ -1319,6 +1327,11 @@ def publish_message_history(client: mqtt.Client) -> None:
 def add_message_history(client: mqtt.Client, entry: Dict[str, Any]) -> None:
     if not as_bool(message_history_config().get("enabled", True)):
         return
+    message_id = str(entry.get("message_id") or "").strip()
+    if message_id:
+        for existing in MESSAGE_HISTORY:
+            if str(existing.get("message_id") or "").strip() == message_id:
+                return
     MESSAGE_HISTORY.append(entry)
     publish_message_history(client)
 
@@ -1894,17 +1907,17 @@ def battery_text(robot_state: Dict[str, Any]) -> str:
     if charging is True:
         return f"{battery} (lädt)"
     if charging is False:
-        return f"{battery} (lädt nicht)"
+        return battery
     return battery
 
 
 def current_area_text(robot_state: Dict[str, Any]) -> str:
-    area_id = str(robot_state.get("current_area_id") or "").strip()
     area_number = str(robot_state.get("current_area") or "").strip()
-    if area_id:
-        return f"Fläche {area_id}"
+    area_id = str(robot_state.get("current_area_id") or "").strip()
     if area_number and area_number not in {"-1", "0"}:
         return f"Fläche {area_number}"
+    if area_id:
+        return f"Fläche {area_id}"
     return "keine aktive Fläche"
 
 
@@ -2007,26 +2020,59 @@ def update_mqtt_state_cache(source_topic: str, payload: str) -> Tuple[Any, Any]:
 
 
 def update_openmower_state(source_topic: str, payload: str, parsed: Any, previous: Any = None) -> None:
-    OPENMOWER_STATE["last_mqtt_topic"] = source_topic
-    OPENMOWER_STATE["last_mqtt_payload"] = payload
-    OPENMOWER_STATE["last_mqtt_time"] = now_iso()
-    if source_topic == "robot_state" or mqtt.topic_matches_sub("robot_state/#", source_topic):
-        root = unwrap_data_root(parsed)
-        if isinstance(root, dict):
-            OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
-            OPENMOWER_STATE["robot_state"] = root
-            OPENMOWER_STATE["robot_state_time"] = now_iso()
-    elif source_topic == "sensors/om_system_wifi_signal_percent" or mqtt.topic_matches_sub("sensors/om_system_wifi_signal_percent/#", source_topic):
-        # Some MQTT exporters publish a plain value on /data and others publish
-        # JSON on a sibling topic.  Cache the numeric value when possible.
-        root = unwrap_data_root(parsed)
-        if isinstance(root, dict):
-            for candidate in ("data", "value", "percent", "wifi_percent"):
-                if candidate in root:
-                    payload = str(root[candidate])
-                    break
-        OPENMOWER_STATE["wifi_percent"] = payload
-        OPENMOWER_STATE["wifi_time"] = now_iso()
+    changed = False
+    with OPENMOWER_STATE_UPDATED:
+        OPENMOWER_STATE["last_mqtt_topic"] = source_topic
+        OPENMOWER_STATE["last_mqtt_payload"] = payload
+        OPENMOWER_STATE["last_mqtt_time"] = now_iso()
+        changed = True
+        if source_topic == "robot_state" or mqtt.topic_matches_sub("robot_state/#", source_topic):
+            root = unwrap_data_root(parsed)
+            if isinstance(root, dict):
+                OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
+                OPENMOWER_STATE["robot_state"] = root
+                OPENMOWER_STATE["robot_state_time"] = now_iso()
+                changed = True
+        elif source_topic == "sensors/om_system_wifi_signal_percent" or mqtt.topic_matches_sub("sensors/om_system_wifi_signal_percent/#", source_topic):
+            # Some MQTT exporters publish a plain value on /data and others publish
+            # JSON on a sibling topic.  Cache the numeric value when possible.
+            root = unwrap_data_root(parsed)
+            value = payload
+            if isinstance(root, dict):
+                for candidate in ("data", "value", "percent", "wifi_percent"):
+                    if candidate in root:
+                        value = str(root[candidate])
+                        break
+            OPENMOWER_STATE["wifi_percent"] = value
+            OPENMOWER_STATE["wifi_time"] = now_iso()
+            changed = True
+        if changed:
+            OPENMOWER_STATE_UPDATED.notify_all()
+
+
+def wait_for_fresh_openmower_status(timeout_seconds: float = STATUS_FRESH_WAIT_SECONDS) -> bool:
+    """Wait briefly for newer ROS-MQTT status samples.
+
+    The status command should prefer fresh robot_state/json and WLAN values.
+    If one of the topics is quiet, this function returns after the timeout and
+    the status text uses the latest cached values.
+    """
+    if timeout_seconds <= 0:
+        return False
+    end_time = time.monotonic() + timeout_seconds
+    with OPENMOWER_STATE_UPDATED:
+        start_robot_time = str(OPENMOWER_STATE.get("robot_state_time") or "")
+        start_wifi_time = str(OPENMOWER_STATE.get("wifi_time") or "")
+        while True:
+            robot_is_fresh = bool(OPENMOWER_STATE.get("robot_state_time")) and str(OPENMOWER_STATE.get("robot_state_time")) != start_robot_time
+            wifi_is_fresh = bool(OPENMOWER_STATE.get("wifi_time")) and str(OPENMOWER_STATE.get("wifi_time")) != start_wifi_time
+            # If one value did not exist before and arrives now, that is fresh too.
+            if robot_is_fresh and wifi_is_fresh:
+                return True
+            remaining = end_time - time.monotonic()
+            if remaining <= 0:
+                return robot_is_fresh or wifi_is_fresh
+            OPENMOWER_STATE_UPDATED.wait(timeout=remaining)
 
 
 def enrich_mqtt_context(context: Dict[str, Any], source_topic: str, payload: str, parsed: Any, previous: Any) -> None:
@@ -2145,6 +2191,7 @@ def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str
             context["processing.result"] = command_help_text() if template == "{help}" else render_value(template, context)
             return True, str(context.get("processing.result", ""))
         if mode == "local_status":
+            wait_for_fresh_openmower_status()
             context["processing.result"] = bot_status_text()
             return True, str(context.get("processing.result", ""))
         if mode == "local_groups":
@@ -2402,7 +2449,7 @@ def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
     chat = make_chat_descriptor(chat_alias, message["chatId"])
     incoming_entry = {
         "timestamp": now_iso(),
-        "direction": "in",
+        "direction": "out" if message["fromMe"] else "in",
         "message_id": message.get("message_id", ""),
         "chat": chat,
         "sender": {"name": "", "number_masked": mask_chat_id(message.get("sender", ""))},
@@ -2410,11 +2457,16 @@ def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         "bot": {"matched": False, "command": "", "accepted": False},
     }
 
-    publish(client, topic("waha", "messages", "in", "json"), {"d": incoming_entry}, retain=False)
-
     if message["fromMe"]:
+        # WAHA may echo messages that were sent by this bridge.  send_text()
+        # already writes bridge-originated messages to the ring buffer.  This
+        # fallback still records externally sent WhatsApp messages as outgoing
+        # history entries when they appear only via webhook.
+        publish(client, topic("waha", "messages", "out", "json"), {"d": incoming_entry}, retain=False)
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "fromMe"}
+
+    publish(client, topic("waha", "messages", "in", "json"), {"d": incoming_entry}, retain=False)
 
     if not effective_bot_enabled():
         add_message_history(client, incoming_entry)

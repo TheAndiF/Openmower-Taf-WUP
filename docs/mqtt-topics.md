@@ -431,3 +431,16 @@ Wichtige Felder aus `robot_state`:
 | `is_charging` | Ladezustand in der Akku-Zeile, z. B. `95 % (lädt)` |
 | `emergency` | Fehler-/Notfall-Erkennung |
 
+
+
+## Status-Frische und Nachrichtenhistorie
+
+`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state`/`robot_state/#` und `sensors/om_system_wifi_signal_percent`/`#` gewartet. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
+
+Der kompakte Status enthält keine Dock-Zeile. `is_charging=1` wird in der Akku-Zeile als `(lädt)` angezeigt. Bei `is_charging=0` wird nur der Akkustand ausgegeben.
+
+Ausgehende WhatsApp-Nachrichten, die die Bridge per WAHA sendet, werden im Ringspeicher unter `messenger/waha/messages/history/json` mit `direction: out` dokumentiert. Selbst gesendete WAHA-Webhooks werden zusätzlich unter `messenger/waha/messages/out/json` gespiegelt und anhand der Message-ID dedupliziert, sofern WAHA eine Message-ID liefert.
+
+## Stop-Befehl
+
+Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logic:mowing/abort_mowing` auf das Topic `action`. Die Befehle `Home`, `Dock` und `Docking` sind nicht in der Standard-XML enthalten, weil dafür noch kein gesicherter OpenMower-Docking-Payload hinterlegt ist.

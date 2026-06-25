@@ -1,17 +1,16 @@
-BL_Update compact ROS MQTT status notifications
+BL_Add stop command and fresh status history
 Date: 2026-06-25
 Summary:
-- Updated Mobert status output to a compact WhatsApp-friendly format.
-- Combined battery percentage and charging state in one line.
-- Removed dock wording from the standard status and notification texts.
-- Added broader ROS MQTT topic handling for robot_state and WiFi signal topics.
-- Updated default flow XML notifications for mower start, charging finished, and emergency errors.
-- Documented the ROS MQTT status mapping and notification behavior.
+- Added an enabled Mobert: Stop command that publishes mower_logic:mowing/abort_mowing to the action topic.
+- Removed the placeholder Dock/Home/Docking command from the default Flow XML until a confirmed docking MQTT payload is available.
+- Updated Mobert: Status to wait briefly for fresh ROS-MQTT robot_state and WLAN data before replying.
+- Improved compact status formatting for area and battery/charging text.
+- Ensured outgoing WhatsApp messages are recorded in the message history with direction=out and mirrored from WAHA fromMe webhooks.
+- Added message-history deduplication by WAHA message_id when available.
 Changed files:
-- CHANGELOG.md
-- COMMIT_MESSAGE.txt
-- README.md
-- bridge/bot_commands.example.xml
 - bridge/controller.py
+- bridge/bot_commands.example.xml
+- README.md
+- CHANGELOG.md
 - docs/mqtt-topics.md
-- docs/openmower-ros-whatsapp-notifications.md
+- COMMIT_MESSAGE.txt

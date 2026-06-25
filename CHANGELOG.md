@@ -1,3 +1,13 @@
+## 2026-06-25 - Status-Frische, Stop-Befehl und Nachrichtenhistorie
+
+- Added enabled `Mobert: Stop` command as the start counterpart. It publishes `mower_logic:mowing/abort_mowing` to `action`.
+- Removed the placeholder Dock/Home/Docking command from the default flow XML until a confirmed docking MQTT payload exists.
+- `Mobert: Status` now waits briefly for fresh `robot_state` and WLAN MQTT samples before sending the WhatsApp reply.
+- Status area text now prefers the numeric `current_area`, so mowing area 1 is shown as `Fläche 1` instead of the raw UUID.
+- Battery text no longer adds `(lädt nicht)` during mowing; it only appends `(lädt)` while charging.
+- Outgoing WAHA webhook echoes are marked as `direction=out` and mirrored to `messenger/waha/messages/out/json`.
+- Message history now deduplicates entries by `message_id` when available, while bridge-sent WhatsApp replies continue to be stored as outgoing messages.
+
 # Changelog
 
 ## v0.4.2 - 2026-06-25

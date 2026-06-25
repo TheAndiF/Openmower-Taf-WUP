@@ -71,20 +71,24 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 | Flow | ROS MQTT input | WhatsApp output |
 |---|---|---|
-| `openmower_drives_off_notification` | `robot_state/json`, `current_state` changes away from `IDLE` | Message that the mower is driving off, including timestamp, state, area/dock text, WLAN strength and MQTT connection. |
-| `openmower_charging_finished_notification` | `robot_state/json`, `is_charging` changes from `true` to `false` | Message that charging has finished, including dock/charging text. |
-| `openmower_error_notification` | `robot_state/json`, `emergency` changes to `true` | Warning message for OpenMower error/emergency. |
-| `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
+| `openmower_drives_off_notification` | `robot_state` or `robot_state/#`, `current_state` changes away from `IDLE` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
+| `openmower_charging_finished_notification` | `robot_state` or `robot_state/#`, `is_charging` changes from `true` to `false` | Message that charging has finished. |
+| `openmower_error_notification` | `robot_state` or `robot_state/#`, `emergency` changes to `true` | Warning message for OpenMower error/emergency. |
+| `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent` or `sensors/om_system_wifi_signal_percent/#` | Updates the internal WLAN percentage cache for status and notifications. |
 
 The XML assumes the ROS MQTT topics are published without an extra prefix, which matches the existing `action`, `robot_state/json` and `sensors/...` topic style used by this stack. If the ROS system uses `OM_MQTT_TOPIC_PREFIX=openmower`, update the XML topics to `openmower/robot_state/json` and `openmower/sensors/om_system_wifi_signal_percent/data`.
 
 `Mobert: Status` uses the latest cached ROS MQTT values and reports:
 
-- WLAN strength in percent
-- current area, or dock status with charging/not charging when the mower is idle/docked
-- MQTT connection state
 - timestamp
-- OpenMower state and emergency flag
+- OpenMower state
+- current area or `keine aktive Fläche`
+- battery percentage with charging note only when charging, e.g. `95 % (lädt)`
+- WLAN strength in percent
+- MQTT connection state
+- error line only when `emergency` is active
+
+For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
 
 ## MQTT base topic
 
@@ -304,6 +308,7 @@ Mobert: Gruppen
 Mobert: Lauschen g014
 Mobert: Start
 Mobert: Pause
+Mobert: Stop
 ```
 
 The command XML is stored at `/data/bot_commands.xml`. If the file does not exist, the controller creates it from the packaged `bot_commands.example.xml`.
@@ -361,4 +366,8 @@ Die Standard-XML enthält aktivierte MQTT-Watchdog-Flows für:
 - OpenMower fährt los: Wechsel von `current_state=IDLE` zu einem anderen Zustand.
 - Laden beendet: Wechsel von `is_charging=true` zu `false`.
 - Fehler erkannt: Wechsel von `emergency` nicht aktiv zu aktiv.
+
+`Mobert: Stop` ist als Gegenstück zu `Mobert: Start` aktiviert und sendet auf `action` den Payload `mower_logic:mowing/abort_mowing`. Die früher diskutierten Synonyme `Home`, `Dock` und `Docking` sind nicht enthalten, solange kein gesicherter Docking-MQTT-Befehl vorliegt.
+
+Ausgehende WhatsApp-Nachrichten werden durch `send_text()` als `direction: out` im Ringspeicher `messenger/waha/messages/history/json` dokumentiert. WAHA-Webhook-Echos von selbst gesendeten Nachrichten werden ebenfalls als ausgehend erkannt und per Message-ID dedupliziert, soweit WAHA eine ID liefert.
 

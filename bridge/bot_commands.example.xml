@@ -239,17 +239,17 @@
       </step>
     </flow>
 
-    <flow id="dock">
+    <flow id="stop_mowing">
       <head>
-        <name>Dock</name>
-        <description>Zur Dockingstation fahren.</description>
-        <enabled>false</enabled>
+        <name>Stop mowing</name>
+        <description>Laufenden Maehbetrieb abbrechen oder stoppen.</description>
+        <enabled>true</enabled>
       </head>
 
       <step id="start">
         <input module="whatsapp_watchdog" type="command">
           <expect>
-            <command>Dock</command>
+            <command>Stop</command>
           </expect>
         </input>
 
@@ -259,12 +259,12 @@
           <topic>action</topic>
           <qos>1</qos>
           <retain>false</retain>
-          <payload>TODO_OPENMOWER_DOCK_ACTION</payload>
+          <payload>mower_logic:mowing/abort_mowing</payload>
         </output>
 
         <output module="whatsapp_output" type="send">
           <target>{replyTarget}</target>
-          <message>Dock-Befehl wurde an OpenMower gesendet.</message>
+          <message>Stop-Befehl wurde an OpenMower gesendet.</message>
         </output>
       </step>
     </flow>

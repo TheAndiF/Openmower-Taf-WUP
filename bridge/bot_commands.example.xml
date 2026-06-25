@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mobertBotConfig version="0.3" language="de">
+<mobertBotConfig version="0.4" language="de">
 
   <head>
     <name>Mobert OpenMower Flow Configuration</name>
@@ -383,6 +383,121 @@
         <output module="whatsapp_output" type="send">
           <target>{replyTarget}</target>
           <message>Zeitplan wurde deaktiviert.</message>
+        </output>
+      </step>
+    </flow>
+
+
+    <flow id="openmower_wifi_cache">
+      <head>
+        <name>OpenMower WLAN cache</name>
+        <description>Aktualisiert die WLAN-Staerke aus dem ROS-MQTT-System fuer Statusmeldungen.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="mqtt_watchdog" type="topic">
+          <expect>
+            <topic>sensors/om_system_wifi_signal_percent/data</topic>
+            <payloadNotEmpty>true</payloadNotEmpty>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+      </step>
+    </flow>
+
+    <flow id="openmower_drives_off_notification">
+      <head>
+        <name>OpenMower drives off notification</name>
+        <description>Meldet standardmaessig per WhatsApp, wenn OpenMower aus dem IDLE-Zustand losfaehrt.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="mqtt_watchdog" type="topic">
+          <expect>
+            <topic>robot_state/json</topic>
+            <json>
+              <field name="current_state" notEquals="IDLE" previousEquals="IDLE" />
+              <field name="emergency" notEquals="true" />
+            </json>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="whatsapp_output" type="send">
+          <target>default_group</target>
+          <message>🚜 OpenMower fährt los.
+Zeitstempel: {timestamp}
+Zustand: {current_state}
+Position/Fläche: {areaText}
+WLAN-Stärke: {wifi_percent}
+MQTT-Verbindung: {mqttConnection}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="openmower_charging_finished_notification">
+      <head>
+        <name>OpenMower charging finished notification</name>
+        <description>Meldet standardmaessig per WhatsApp, wenn der Ladevorgang beendet wurde.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="mqtt_watchdog" type="topic">
+          <expect>
+            <topic>robot_state/json</topic>
+            <json>
+              <field name="is_charging" equals="false" previousEquals="true" />
+            </json>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="whatsapp_output" type="send">
+          <target>default_group</target>
+          <message>🔋 Laden beendet.
+Zeitstempel: {timestamp}
+Position/Fläche: {areaText}
+Laden: {chargingText}
+WLAN-Stärke: {wifi_percent}
+MQTT-Verbindung: {mqttConnection}</message>
+        </output>
+      </step>
+    </flow>
+
+    <flow id="openmower_error_notification">
+      <head>
+        <name>OpenMower error notification</name>
+        <description>Meldet standardmaessig per WhatsApp, wenn ROS-MQTT einen OpenMower-Fehler bzw. Emergency meldet.</description>
+        <enabled>true</enabled>
+      </head>
+
+      <step id="start">
+        <input module="mqtt_watchdog" type="topic">
+          <expect>
+            <topic>robot_state/json</topic>
+            <json>
+              <field name="emergency" equals="true" previousNotEquals="true" />
+            </json>
+          </expect>
+        </input>
+
+        <processing mode="passthrough" />
+
+        <output module="whatsapp_output" type="send">
+          <target>default_group</target>
+          <message>⚠️ OpenMower Fehler/Emergency erkannt.
+Zeitstempel: {timestamp}
+Zustand: {current_state}
+Position/Fläche: {areaText}
+Laden: {chargingText}
+WLAN-Stärke: {wifi_percent}
+MQTT-Verbindung: {mqttConnection}</message>
         </output>
       </step>
     </flow>

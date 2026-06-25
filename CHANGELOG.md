@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.1 - 2026-06-25
+
+- Enabled default ROS MQTT watchdog flows for OpenMower drive-off, charging-finished and emergency/error WhatsApp notifications.
+- Added a WLAN cache flow for `sensors/om_system_wifi_signal_percent/data`.
+- Extended the Mobert status text with WLAN strength, current area or dock/charging status, MQTT connection and timestamp.
+- Documented the ROS MQTT source topics and default WhatsApp notifications.
+
 ## v0.4.0 - 2026-06-25
 
 - Added XML-driven Mobert flow architecture with central `whatsapp_watchdog`, `mqtt_watchdog`, `whatsapp_output` and `mqtt_output` modules.

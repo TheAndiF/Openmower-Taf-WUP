@@ -1,17 +1,15 @@
-BL_Add XML driven Mobert flow engine
+BL_Add ROS MQTT WhatsApp notifications
 Date: 2026-06-25
 Summary:
-- Reworked the Mobert command loader to support the new mobertBotConfig flow XML with central watchdog and output modules.
-- Kept legacy mobertCommands XML compatibility so existing command files can still be loaded.
-- Added flow execution for head/input/processing/output steps, including WhatsApp replies, MQTT publishes, local status/actions and listener group updates.
-- Added MQTT confirmation handling with pending confirmation status and timeout/result outputs.
-- Added runtime XML replacement through messenger/bot/commands/set/xml while keeping existing MQTT settings topics for WAHA, groups, history and Bot configuration.
-- Updated the default bot_commands.example.xml, README, MQTT topic documentation and changelog.
+- Enabled default XML watchdog flows that notify WhatsApp when OpenMower drives off, finishes charging or reports an emergency/error.
+- Added a ROS MQTT WLAN cache flow for sensors/om_system_wifi_signal_percent/data so status and notifications can include WLAN strength in percent.
+- Extended the Mobert status output with timestamp, MQTT connection, WLAN strength, OpenMower state, current area or dock/charging text and emergency state.
+- Documented the ROS MQTT source topics, default notifications and topic-prefix adjustment.
 Changed files:
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - README.md
 - bridge/bot_commands.example.xml
-- bridge/config.example.json
 - bridge/controller.py
 - docs/mqtt-topics.md
+- docs/openmower-ros-whatsapp-notifications.md

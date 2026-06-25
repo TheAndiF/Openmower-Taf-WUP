@@ -557,6 +557,21 @@ BOT_CONFIG_ENABLED = True
 PENDING_CONFIRMATIONS: List[Dict[str, Any]] = []
 PENDING_CONFIRMATIONS_LOCK = threading.Lock()
 
+# Latest external MQTT values collected by the mqtt_watchdog.  These values are
+# intentionally small and retained in memory only; they are used for WhatsApp
+# status texts and for transition matching in flow XML conditions.
+OPENMOWER_STATE: Dict[str, Any] = {
+    "robot_state": {},
+    "robot_state_previous": {},
+    "robot_state_time": "",
+    "wifi_percent": "unbekannt",
+    "wifi_time": "",
+    "last_mqtt_topic": "",
+    "last_mqtt_payload": "",
+    "last_mqtt_time": "",
+}
+MQTT_TOPIC_CACHE: Dict[str, Dict[str, Any]] = {}
+
 
 def ensure_default_bot_commands_file() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -639,6 +654,26 @@ def parse_output_node(node: ET.Element) -> Dict[str, Any]:
     }
 
 
+def parse_json_conditions(expect: Optional[ET.Element]) -> List[Dict[str, Any]]:
+    conditions: List[Dict[str, Any]] = []
+    if expect is None:
+        return conditions
+    for field_node in expect.findall("json/field"):
+        name = field_node.attrib.get("name", "").strip()
+        if not name:
+            continue
+        conditions.append({
+            "name": name,
+            "equals": field_node.attrib.get("equals"),
+            "not_equals": field_node.attrib.get("notEquals"),
+            "previous_equals": field_node.attrib.get("previousEquals"),
+            "previous_not_equals": field_node.attrib.get("previousNotEquals"),
+            "previous_exists": as_bool(field_node.attrib.get("previousExists", "false")),
+            "exists": as_bool(field_node.attrib.get("exists", "false")),
+        })
+    return conditions
+
+
 def parse_step(node: ET.Element) -> Dict[str, Any]:
     input_node = node.find("input")
     expect = input_node.find("expect") if input_node is not None else None
@@ -664,6 +699,7 @@ def parse_step(node: ET.Element) -> Dict[str, Any]:
             "topic": xml_child_text(expect, "topic"),
             "payload_equals": xml_child_text(expect, "payloadEquals"),
             "payload_not_empty": as_bool(xml_child_text(expect, "payloadNotEmpty", "false")),
+            "json_conditions": parse_json_conditions(expect),
             "parameters": parse_parameters(input_node),
         },
         "processing": processing,
@@ -1692,18 +1728,84 @@ def extract_webhook_message(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def mqtt_connection_text() -> str:
+    client = MQTT_CLIENT
+    if client is None:
+        return "nicht gestartet"
+    try:
+        return "verbunden" if client.is_connected() else "nicht verbunden"
+    except Exception:
+        return "unbekannt"
+
+
+def parse_bool_like(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "on", "ja", "laden", "charging"}:
+        return True
+    if text in {"false", "0", "no", "off", "nein", "nicht laden", "not_charging"}:
+        return False
+    return None
+
+
+def format_wifi_percent(value: Any) -> str:
+    if value is None or value == "":
+        return "unbekannt"
+    try:
+        number = float(str(value).replace(",", "."))
+        return f"{number:.0f} %"
+    except Exception:
+        return str(value)
+
+
+def current_area_text(robot_state: Dict[str, Any]) -> str:
+    state_name = str(robot_state.get("current_state") or "").strip()
+    area_id = str(robot_state.get("current_area_id") or "").strip()
+    area_number = str(robot_state.get("current_area") or "").strip()
+    is_charging = parse_bool_like(robot_state.get("is_charging"))
+    # OpenMower publishes no explicit dock flag in robot_state/json. Charging is
+    # the safest dock indicator. If the mower is IDLE without an area id, present
+    # it as dock/idle so the WhatsApp status remains human-readable.
+    if is_charging is True:
+        return "im Dock (lädt)"
+    if state_name.upper() == "IDLE" and not area_id and area_number in {"", "-1", "0"}:
+        return "im Dock (lädt nicht)"
+    if area_id:
+        return f"Fläche {area_id}"
+    if area_number and area_number not in {"-1", "0"}:
+        return f"Fläche {area_number}"
+    if state_name:
+        return f"keine Fläche ({state_name})"
+    return "unbekannt"
+
+
 def bot_status_text() -> str:
     default_group = effective_default_group()
     listen_group = effective_listener_group()
+    robot_state = dict(OPENMOWER_STATE.get("robot_state") or {})
+    wifi_value = OPENMOWER_STATE.get("wifi_percent")
+    charging = parse_bool_like(robot_state.get("is_charging"))
+    charging_text = "laden" if charging is True else "nicht laden" if charging is False else "unbekannt"
+    state_name = str(robot_state.get("current_state") or "unbekannt")
+    emergency = parse_bool_like(robot_state.get("emergency"))
+    error_text = "ja" if emergency is True else "nein" if emergency is False else "unbekannt"
     return (
         "Mobert Status:\n"
+        f"Zeitstempel: {now_iso()}\n"
+        f"MQTT-Verbindung: {mqtt_connection_text()}\n"
+        f"WLAN-Stärke: {format_wifi_percent(wifi_value)}\n"
+        f"OpenMower-Zustand: {state_name}\n"
+        f"Position/Fläche: {current_area_text(robot_state)}\n"
+        f"Laden: {charging_text}\n"
+        f"Fehler/Notfall: {error_text}\n"
         f"Session: {SESSION.get('name', '')} ({SESSION.get('status', '')})\n"
-        f"Konto: {SESSION.get('account', '')}\n"
         f"Bot aktiv: {effective_bot_enabled()}\n"
         f"Startwort: {effective_wake_word()}\n"
         f"Lauschen: {listen_group} {group_subject(listen_group)}\n"
         f"Standardziel: {default_group} {group_subject(default_group)}\n"
-        f"XML-Format: {BOT_COMMANDS_META.get('format', 'legacy')}\n"
         f"Gruppen: {len(GROUPS_BY_KEY)}\n"
         f"Befehle: {len(BOT_COMMANDS)}"
     )
@@ -1733,7 +1835,122 @@ def render_value(template_value: str, context: Dict[str, Any]) -> str:
     return rendered
 
 
-def flow_step_matches_mqtt(step: Dict[str, Any], source_topic: str, payload: str) -> bool:
+def try_parse_json_value(payload: str) -> Any:
+    try:
+        return json.loads(payload)
+    except Exception:
+        return payload
+
+
+def unwrap_data_root(value: Any) -> Any:
+    if isinstance(value, dict) and isinstance(value.get("d"), dict):
+        return value["d"]
+    return value
+
+
+def json_path_value(data: Any, path: str) -> Any:
+    current = unwrap_data_root(data)
+    for part in path.split("."):
+        if not part:
+            continue
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+    return current
+
+
+def comparable_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def condition_matches_value(actual: Any, expected: Optional[str]) -> bool:
+    if expected is None:
+        return True
+    actual_text = comparable_value(actual).lower()
+    expected_text = comparable_value(expected).lower()
+    return actual_text == expected_text
+
+
+def update_mqtt_state_cache(source_topic: str, payload: str) -> Tuple[Any, Any]:
+    parsed = try_parse_json_value(payload)
+    previous_entry = MQTT_TOPIC_CACHE.get(source_topic, {})
+    previous = previous_entry.get("json")
+    MQTT_TOPIC_CACHE[source_topic] = {"payload": payload, "json": parsed, "time": now_iso()}
+    update_openmower_state(source_topic, payload, parsed, previous)
+    return parsed, previous
+
+
+def update_openmower_state(source_topic: str, payload: str, parsed: Any, previous: Any = None) -> None:
+    OPENMOWER_STATE["last_mqtt_topic"] = source_topic
+    OPENMOWER_STATE["last_mqtt_payload"] = payload
+    OPENMOWER_STATE["last_mqtt_time"] = now_iso()
+    if source_topic == "robot_state/json":
+        root = unwrap_data_root(parsed)
+        if isinstance(root, dict):
+            OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
+            OPENMOWER_STATE["robot_state"] = root
+            OPENMOWER_STATE["robot_state_time"] = now_iso()
+    elif source_topic == "sensors/om_system_wifi_signal_percent/data":
+        OPENMOWER_STATE["wifi_percent"] = payload
+        OPENMOWER_STATE["wifi_time"] = now_iso()
+
+
+def enrich_mqtt_context(context: Dict[str, Any], source_topic: str, payload: str, parsed: Any, previous: Any) -> None:
+    context.update({
+        "topic": source_topic,
+        "payload": payload,
+        "mqttTopic": source_topic,
+        "mqttPayload": payload,
+        "timestamp": now_iso(),
+        "mqttConnection": mqtt_connection_text(),
+        "wifi_percent": format_wifi_percent(OPENMOWER_STATE.get("wifi_percent")),
+    })
+    root = unwrap_data_root(parsed)
+    previous_root = unwrap_data_root(previous)
+    if isinstance(root, dict):
+        for key, value in root.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                context[key] = value
+                context[f"json.{key}"] = value
+        context["areaText"] = current_area_text(root)
+        context["chargingText"] = "lädt" if parse_bool_like(root.get("is_charging")) is True else "lädt nicht" if parse_bool_like(root.get("is_charging")) is False else "unbekannt"
+        context["errorText"] = "ja" if parse_bool_like(root.get("emergency")) is True else "nein" if parse_bool_like(root.get("emergency")) is False else "unbekannt"
+    if isinstance(previous_root, dict):
+        for key, value in previous_root.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                context[f"previous.{key}"] = value
+
+
+def json_conditions_match(conditions: List[Dict[str, Any]], parsed: Any, previous: Any) -> bool:
+    if not conditions:
+        return True
+    root = unwrap_data_root(parsed)
+    previous_root = unwrap_data_root(previous)
+    for condition in conditions:
+        name = str(condition.get("name") or "")
+        actual = json_path_value(root, name)
+        previous_actual = json_path_value(previous_root, name) if previous_root is not None else None
+        if as_bool(condition.get("exists", False)) and actual is None:
+            return False
+        if as_bool(condition.get("previous_exists", False)) and previous_root is None:
+            return False
+        if condition.get("equals") is not None and not condition_matches_value(actual, condition.get("equals")):
+            return False
+        if condition.get("not_equals") is not None and condition_matches_value(actual, condition.get("not_equals")):
+            return False
+        if condition.get("previous_equals") is not None and not condition_matches_value(previous_actual, condition.get("previous_equals")):
+            return False
+        if condition.get("previous_not_equals") is not None and condition_matches_value(previous_actual, condition.get("previous_not_equals")):
+            return False
+    return True
+
+
+def flow_step_matches_mqtt(step: Dict[str, Any], source_topic: str, payload: str, parsed: Any = None, previous: Any = None) -> bool:
     input_cfg = step.get("input", {})
     expected_topic = str(input_cfg.get("topic") or "").strip()
     if not expected_topic:
@@ -1744,6 +1961,10 @@ def flow_step_matches_mqtt(step: Dict[str, Any], source_topic: str, payload: str
     if payload_equals and payload != payload_equals:
         return False
     if as_bool(input_cfg.get("payload_not_empty", False)) and payload == "":
+        return False
+    if parsed is None:
+        parsed = try_parse_json_value(payload)
+    if not json_conditions_match(list(input_cfg.get("json_conditions") or []), parsed, previous):
         return False
     return True
 
@@ -1907,8 +2128,11 @@ def finish_pending_confirmation(pending_id: str, result: str, source_topic: str,
     flow = pending["flow"]
     step = pending["step"]
     context = dict(pending["context"])
-    context.update({"topic": source_topic, "payload": payload, "mqttTopic": source_topic, "mqttPayload": payload, "result": result})
+    context.update({"result": result})
     if result != "timeout":
+        parsed = try_parse_json_value(payload)
+        previous = MQTT_TOPIC_CACHE.get(source_topic, {}).get("json")
+        enrich_mqtt_context(context, source_topic, payload, parsed, previous)
         execute_processing(client, flow, step, context)
         result = str(context.get("result", result))
     for output_cfg in step.get("outputs", []) or []:
@@ -1922,16 +2146,17 @@ def finish_pending_confirmation(pending_id: str, result: str, source_topic: str,
 
 def handle_flow_mqtt_event(client: mqtt.Client, source_topic: str, payload: str) -> bool:
     handled = False
+    parsed, previous = update_mqtt_state_cache(source_topic, payload)
     # Confirmation steps have priority because they belong to a command that is already in progress.
     matching_pending: List[str] = []
     with PENDING_CONFIRMATIONS_LOCK:
         for item in PENDING_CONFIRMATIONS:
-            if flow_step_matches_mqtt(item.get("step", {}), source_topic, payload):
+            if flow_step_matches_mqtt(item.get("step", {}), source_topic, payload, parsed, previous):
                 matching_pending.append(str(item.get("id")))
     for pending_id in matching_pending:
         handled = finish_pending_confirmation(pending_id, "success", source_topic, payload) or handled
 
-    # MQTT watchdog start inputs can also create flows directly, e.g. automatic error or pause notifications.
+    # MQTT watchdog start inputs can also create flows directly, e.g. automatic error or state notifications.
     for flow in BOT_FLOWS.values():
         if not as_bool(flow.get("enabled", True)):
             continue
@@ -1939,15 +2164,12 @@ def handle_flow_mqtt_event(client: mqtt.Client, source_topic: str, payload: str)
             input_cfg = step.get("input", {})
             if input_cfg.get("module") != "mqtt_watchdog" or input_cfg.get("type") == "confirmation":
                 continue
-            if flow_step_matches_mqtt(step, source_topic, payload):
+            if flow_step_matches_mqtt(step, source_topic, payload, parsed, previous):
                 context = {
-                    "topic": source_topic,
-                    "payload": payload,
-                    "mqttTopic": source_topic,
-                    "mqttPayload": payload,
                     "replyTarget": effective_default_group(),
                     "request_id": f"mqtt:{flow.get('id', '')}",
                 }
+                enrich_mqtt_context(context, source_topic, payload, parsed, previous)
                 execute_flow_step(client, flow, step, context)
                 handled = True
     return handled
@@ -2186,6 +2408,10 @@ def on_connect(client: mqtt.Client, userdata: Any, flags: Any, reason_code: Any,
     publish_state(client)
 
 
+def on_disconnect(client: mqtt.Client, userdata: Any, reason_code: Any, properties: Any = None) -> None:
+    log(f"Disconnected from MQTT {MQTT_HOST}:{MQTT_PORT}, reason={reason_code}")
+
+
 def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
     mqtt_topic = msg.topic
     payload = read_text_payload(msg.payload)
@@ -2249,6 +2475,7 @@ def main() -> None:
     client.will_set(topic("status", "online"), "false", qos=0, retain=True)
     client.on_connect = on_connect
     client.on_message = on_message
+    client.on_disconnect = on_disconnect
     log(f"Starting controller with MQTT_BASE_TOPIC={MQTT_BASE_TOPIC}")
     log(f"WAHA_URL={WAHA_URL}")
     log(f"Provider={PROVIDER_NAME}, protocol={PROTOCOL_NAME}")

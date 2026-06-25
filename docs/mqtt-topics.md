@@ -385,3 +385,24 @@ MQTT confirmation steps are published while pending under:
 ```text
 messenger/bot/confirmations/pending/json
 ```
+
+
+## ROS MQTT inputs used by Mobert
+
+The default flow XML subscribes to ROS/OpenMower MQTT topics through the central `mqtt_watchdog` input module.
+
+| Topic | Used for |
+|---|---|
+| `robot_state/json` | OpenMower state, current area, charging flag and emergency flag. |
+| `sensors/om_system_wifi_signal_percent/data` | WLAN strength in percent for status and WhatsApp notifications. |
+
+Enabled default flows:
+
+| Flow | Trigger condition | Output |
+|---|---|---|
+| `openmower_drives_off_notification` | `current_state` changes from `IDLE` to another state and `emergency` is not `true`. | WhatsApp notification that the mower drives off. |
+| `openmower_charging_finished_notification` | `is_charging` changes from `true` to `false`. | WhatsApp notification that charging has finished. |
+| `openmower_error_notification` | `emergency` changes to `true`. | WhatsApp warning for an OpenMower error/emergency. |
+| `openmower_wifi_cache` | WLAN payload is received. | Internal cache update for status output. |
+
+The `Mobert: Status` reply contains a timestamp, MQTT connection state, WLAN strength, OpenMower state, area/dock/charging text and error/emergency status.

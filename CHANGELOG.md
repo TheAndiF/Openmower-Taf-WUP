@@ -125,3 +125,13 @@
 - ROS-MQTT-Erkennung akzeptiert jetzt `robot_state` sowie `robot_state/#`.
 - WLAN-Cache akzeptiert jetzt `sensors/om_system_wifi_signal_percent` sowie Untertopics wie `/data`.
 - Standard-WhatsApp-Meldungen für Losfahren, Laden beendet und Fehler wurden auf kompakte Texte angepasst.
+
+## 2026-06-25 - v0.2 - MQTT outgoing message visibility
+
+- Published outgoing WhatsApp messages explicitly on `messenger/waha/messages/out/json`.
+- Added retained last-message topics below `messenger/waha/messages/out/last/#` so MQTT tools can show the latest outgoing message without catching the live event.
+- Added retained incoming/outgoing history snapshots below `messenger/waha/messages/in/history/json` and `messenger/waha/messages/out/history/json`.
+- Replaced ROS MQTT wildcard topics in active and example XML with exact topics:
+  - `robot_state/json`
+  - `sensors/om_system_wifi_signal_percent/data`
+- Adjusted ROS JSON matching to numeric OpenMower values `0`/`1` for `emergency` and `is_charging`.

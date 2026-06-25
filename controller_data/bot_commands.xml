@@ -356,8 +356,8 @@
           <expect>
             <topic>robot_state/json</topic>
             <json>
-              <field name="current_state" notEquals="IDLE" previousEquals="IDLE" />
-              <field name="emergency" notEquals="true" />
+              <field name="current_state" equals="MOWING" previousNotEquals="MOWING" />
+              <field name="emergency" equals="0" />
             </json>
           </expect>
         </input>
@@ -387,7 +387,7 @@
           <expect>
             <topic>robot_state/json</topic>
             <json>
-              <field name="is_charging" equals="false" previousEquals="true" />
+              <field name="is_charging" equals="0" previousEquals="1" />
             </json>
           </expect>
         </input>
@@ -417,7 +417,7 @@
           <expect>
             <topic>robot_state/json</topic>
             <json>
-              <field name="emergency" equals="true" previousNotEquals="true" />
+              <field name="emergency" equals="1" previousNotEquals="1" />
             </json>
           </expect>
         </input>

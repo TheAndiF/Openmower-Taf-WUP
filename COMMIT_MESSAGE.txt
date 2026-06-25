@@ -1,13 +1,15 @@
-BL_Clean package hygiene
+BL_Add MQTT outgoing message logging
 Date: 2026-06-25
 Summary:
-- Added .git/ to .gitignore to prevent local Git metadata from being packaged.
-- Removed local Git metadata and Python cache files from the deliverable package.
-- Kept controller_data/bot_commands.xml included intentionally as the active Flow XML configuration.
-- Added documentation for package cleanup and verification steps.
+- Published outgoing WhatsApp messages as explicit MQTT events and retained last-message status topics.
+- Added retained in/out message history snapshots for easier MQTT inspection.
+- Replaced ROS MQTT wildcard topics in Flow XML with exact OpenMower topics.
+- Adjusted OpenMower ROS JSON conditions to numeric 0/1 values for emergency and charging states.
+- Documented the MQTT outgoing message logging topics.
 Changed files:
-- .gitignore
+- bridge/controller.py
+- bridge/bot_commands.example.xml
+- controller_data/bot_commands.xml
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
-- README.md
-- docs/package-hygiene.md
+- docs/mqtt-message-logging.md

@@ -1317,11 +1317,29 @@ def make_status_json(error: str = "") -> Dict[str, Any]:
 
 
 def publish_message_history(client: mqtt.Client) -> None:
+    messages = list(MESSAGE_HISTORY)
+    out_messages = [entry for entry in messages if entry.get("direction") == "out"]
+    in_messages = [entry for entry in messages if entry.get("direction") == "in"]
+
     publish(client, topic("waha", "messages", "json"), messages_payload())
-    publish(client, topic("waha", "messages", "count"), len(list(MESSAGE_HISTORY)))
+    publish(client, topic("waha", "messages", "count"), len(messages))
+    publish(client, topic("waha", "messages", "out", "history", "json"), {"d": out_messages})
+    publish(client, topic("waha", "messages", "out", "count"), len(out_messages))
+    publish(client, topic("waha", "messages", "in", "history", "json"), {"d": in_messages})
+    publish(client, topic("waha", "messages", "in", "count"), len(in_messages))
+
     history_config = message_history_config()
     publish(client, topic("waha", "messages", "history", "enabled"), str(as_bool(history_config.get("enabled", True))).lower())
     publish(client, topic("waha", "messages", "history", "limit"), int(history_config.get("limit", 10) or 0))
+
+
+def publish_outgoing_message_event(client: mqtt.Client, entry: Dict[str, Any]) -> None:
+    """Publish outgoing WhatsApp messages as explicit MQTT events and retained last-state topics."""
+    publish(client, topic("waha", "messages", "out", "json"), {"d": entry}, retain=False)
+    publish(client, topic("waha", "messages", "out", "last", "json"), {"d": entry}, retain=True)
+    publish(client, topic("waha", "messages", "out", "last", "text"), entry.get("text", ""), retain=True)
+    publish(client, topic("waha", "messages", "out", "last", "status"), entry.get("status", ""), retain=True)
+    publish(client, topic("waha", "messages", "out", "last", "time"), entry.get("timestamp", ""), retain=True)
 
 
 def add_message_history(client: mqtt.Client, entry: Dict[str, Any]) -> None:
@@ -1486,6 +1504,7 @@ def send_text(client: mqtt.Client, target: Any, text: str, request_id: str = "")
         "status": "sent",
         "error": None,
     }
+    publish_outgoing_message_event(client, entry)
     add_message_history(client, entry)
     return {"sent": True, "chat": chat, "waha": result, "message": entry}
 
@@ -1757,6 +1776,7 @@ def handle_outgoing_message(client: mqtt.Client, payload: str) -> None:
             "status": "failed",
             "error": str(exc),
         }
+        publish_outgoing_message_event(client, entry)
         add_message_history(client, entry)
         publish_validation(
             client,
@@ -2462,7 +2482,7 @@ def handle_webhook(data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         # already writes bridge-originated messages to the ring buffer.  This
         # fallback still records externally sent WhatsApp messages as outgoing
         # history entries when they appear only via webhook.
-        publish(client, topic("waha", "messages", "out", "json"), {"d": incoming_entry}, retain=False)
+        publish_outgoing_message_event(client, incoming_entry)
         add_message_history(client, incoming_entry)
         return 200, {"ok": True, "ignored": "fromMe"}
 

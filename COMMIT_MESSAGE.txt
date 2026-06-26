@@ -1,19 +1,15 @@
-BL_Improve Mobert status and XML help formatting
-Date: 2026-06-25
+BL_Generate Mobert help from XML command model
+Date: 2026-06-26
 Summary:
-- Reformatted Mobert status replies for WhatsApp with bold labels, a visual title underline and a local human-readable timestamp.
-- Added active mowing progress behind the area as (00%) through (100%) using current_action_progress.
-- Added always-visible Emergency and Fehler lines to the status response.
-- Reworked the Mobert help response so the active XML command model remains the source of truth.
-- Added STATUS_TIMEZONE configuration to the example environment and Compose file.
+- Generated the Mobert help response from the active bot_commands.xml command model.
+- Used enabled WhatsApp command flows as visible help entries with start commands from <expect><command> and descriptions from <head><description>.
+- Rebuilt help after MQTT XML replacement and XML reload operations.
+- Published the generated help as retained MQTT text and JSON snapshots for verification.
 Changed files:
-- .env.example
-- compose.example.yaml
 - bridge/controller.py
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
+- docs/xml-generated-help.md
 - docs/mobert-status-formatting.md
-- docs/status-cache-subscriptions.md
 - docs/mqtt-topics.md
-- docs/openmower-ros-whatsapp-notifications.md

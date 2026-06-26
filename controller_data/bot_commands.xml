@@ -225,7 +225,7 @@
       <head>
         <name>Start area</name>
         <description>Bestimmte Flaeche starten und MQTT-Bestaetigung abwarten.</description>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
       </head>
       <step id="start">
         <input module="whatsapp_watchdog" type="command">
@@ -283,7 +283,7 @@
       <head>
         <name>Schedule on</name>
         <description>Zeitplan aktivieren.</description>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
       </head>
       <step id="start">
         <input module="whatsapp_watchdog" type="command">
@@ -308,7 +308,7 @@
       <head>
         <name>Schedule off</name>
         <description>Zeitplan deaktivieren.</description>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
       </head>
       <step id="start">
         <input module="whatsapp_watchdog" type="command">

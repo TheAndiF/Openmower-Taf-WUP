@@ -96,3 +96,15 @@ docker logs waha_mqtt_controller --tail=100 | grep -Ei 'Loaded|Subscribed OpenMo
 ```
 
 Danach `Mobert: Status` und `Mobert: ?` in der WhatsApp-Lauschgruppe testen.
+
+
+## v1.4 Hinweis: Hilfe als neu aufgebautes XML-Artefakt
+
+Die Hilfe wird nun beim Laden der XML explizit neu aufgebaut. `Mobert: ?` verwendet dieses erzeugte Hilfeartefakt. Nach einer Aenderung ueber `messenger/bot/commands/set/xml` oder einem Reload ueber `messenger/bot/commands/set/renew/json` wird die Hilfe ebenfalls neu erzeugt.
+
+Die retained MQTT-Snapshots stehen hier bereit:
+
+```text
+messenger/bot/help/text
+messenger/bot/help/json
+```

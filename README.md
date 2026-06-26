@@ -96,7 +96,7 @@ Example:
 *MQTT:* verbunden
 ```
 
-`Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload.
+`Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload. Starting with v1.4, the generated help is also rebuilt on every MQTT XML replacement/reload and published as retained MQTT snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
 
 For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
 
@@ -353,6 +353,15 @@ Reload the Mobert XML from disk:
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 ```
+
+Read the generated help from MQTT:
+
+```bash
+mosquitto_sub -h Mosquitto -C 1 -v -t messenger/bot/help/text
+mosquitto_sub -h Mosquitto -C 1 -v -t messenger/bot/help/json
+```
+
+The help is rebuilt from the active XML whenever `messenger/bot/commands/set/xml` or `messenger/bot/commands/set/renew/json` is processed.
 
 ## Kompakter ROS-MQTT-Status in WhatsApp
 

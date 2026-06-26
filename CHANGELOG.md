@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-06-26 - v1.4 - XML-generated help snapshots
+
+- Rebuilt `Mobert: ?` as an explicit help artifact generated from the active `bot_commands.xml`.
+- Mapped visible help entries from enabled WhatsApp command flows using `<expect><command>` as the start command and `<head><description>` as the displayed description.
+- Rebuilt the help automatically after MQTT XML replacement (`messenger/bot/commands/set/xml`) and XML reload (`messenger/bot/commands/set/renew/json`).
+- Published retained MQTT help snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
+- Added generated help metadata to `messenger/bot/commands/json` for verification and diagnostics.
+
 ## 2026-06-25 - v1.3 - Status formatting and XML-based help
 
 - Reformatted `Mobert: Status` for WhatsApp with bold field labels, a visual title underline and local human-readable time via `STATUS_TIMEZONE`.

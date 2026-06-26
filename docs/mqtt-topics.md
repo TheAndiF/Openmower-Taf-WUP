@@ -452,3 +452,22 @@ Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logi
 `Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
 
 `Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
+
+
+## v1.4 Hilfe-Snapshots
+
+Die aus `bot_commands.xml` erzeugte Hilfe wird retained auf MQTT veroeffentlicht:
+
+```text
+messenger/bot/help/text
+messenger/bot/help/json
+```
+
+`messenger/bot/help/text` enthaelt die WhatsApp-fertige Hilfe. `messenger/bot/help/json` enthaelt Metadaten wie Quelle, Format, Wake Word und die aus der XML gemappten Eintraege.
+
+Nach diesen Aktionen wird die Hilfe neu aufgebaut und erneut veroeffentlicht:
+
+```text
+messenger/bot/commands/set/xml
+messenger/bot/commands/set/renew/json
+```

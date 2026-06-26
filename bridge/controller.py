@@ -526,6 +526,7 @@ class BotCommand:
     example: str
     description: str
     action_type: str
+    name: str = ""
     response: str = ""
     response_template: str = ""
     mqtt_topic: str = ""
@@ -544,6 +545,7 @@ class BotCommand:
             "id": self.command_id,
             "enabled": self.enabled,
             "category": self.category,
+            "name": self.name,
             "trigger": self.trigger,
             "example": self.example,
             "description": self.description,
@@ -893,6 +895,7 @@ def make_flow_command(flow: Dict[str, Any], step: Dict[str, Any]) -> Optional[Bo
         command_id=flow["id"],
         enabled=as_bool(flow.get("enabled", True)),
         category=flow.get("category", "general"),
+        name=flow.get("name", ""),
         trigger=trigger,
         example=f"{effective_wake_word(raw=True)}: {trigger}",
         description=flow.get("description", ""),
@@ -981,6 +984,7 @@ def load_legacy_bot_commands(raw_xml: str, root: ET.Element) -> Tuple[Dict[str, 
             command_id=node.attrib.get("id", "").strip(),
             enabled=as_bool(node.attrib.get("enabled", "true")),
             category=node.attrib.get("category", "general"),
+            name=xml_child_text(node, "name"),
             trigger=xml_child_text(node, "trigger"),
             example=xml_child_text(node, "example"),
             description=xml_child_text(node, "description"),
@@ -1018,14 +1022,18 @@ BOT_COMMANDS_XML = ""
 BOT_COMMANDS_META: Dict[str, Any] = {}
 BOT_COMMANDS: List[BotCommand] = []
 BOT_COMMANDS_VALIDATION: Dict[str, Any] = {"valid": False, "error": "not loaded"}
+BOT_HELP_TEXT = ""
+BOT_HELP_JSON: Dict[str, Any] = {}
 
 
 def reload_bot_commands() -> None:
-    global BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS, BOT_CONFIG_ENABLED
+    global BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS, BOT_CONFIG_ENABLED, BOT_HELP_TEXT, BOT_HELP_JSON
     try:
         BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS = load_bot_commands()
         BOT_CONFIG_ENABLED = as_bool(BOT_COMMANDS_META.get("enabled", True))
+        BOT_HELP_TEXT, BOT_HELP_JSON = build_bot_help_artifacts()
         log(f"Loaded {len(BOT_COMMANDS)} bot commands from {BOT_COMMANDS_FILE} ({BOT_COMMANDS_META.get('format', 'unknown')})")
+        log(f"Generated help from bot XML with {len(BOT_HELP_JSON.get('entries', []))} visible entries")
     except Exception as exc:
         BOT_COMMANDS_VALIDATION = {"valid": False, "error": str(exc)}
         BOT_COMMANDS = []
@@ -1034,6 +1042,8 @@ def reload_bot_commands() -> None:
         BOT_COMMANDS_XML = ""
         BOT_COMMANDS_META = {"version": "", "source": str(BOT_COMMANDS_FILE)}
         BOT_CONFIG_ENABLED = False
+        BOT_HELP_TEXT = "*Mobert Hilfe*\n────────────\n\nKeine Befehle geladen."
+        BOT_HELP_JSON = {"generated_at": now_iso(), "source": str(BOT_COMMANDS_FILE), "valid": False, "error": str(exc), "entries": []}
         log(f"Could not load bot commands: {exc}")
 
 
@@ -1084,36 +1094,78 @@ def effective_bot_enabled() -> bool:
     return BOT_CONFIG_ENABLED and as_bool(CONFIG.get("bot", {}).get("enabled", True)) and module_is_enabled("whatsapp_watchdog")
 
 
-def command_help_text() -> str:
-    """Build the WhatsApp help response from the active XML command model.
+def command_help_example(cmd: BotCommand, wake_word: str) -> str:
+    """Return the visible WhatsApp command example for one XML command."""
+    trigger = str(cmd.trigger or "").strip()
+    example = str(cmd.example or "").strip() or f"{wake_word}: {trigger}"
+    # Keep examples aligned with the currently active wake word.  The XML stores
+    # the start command in <expect><command>; the wake word comes from the
+    # whatsapp module and may be changed centrally.
+    if ":" in example:
+        example = f"{wake_word}: {example.split(':', 1)[1].strip()}"
+    elif not example.lower().startswith(wake_word.lower()):
+        example = f"{wake_word}: {example}"
+    return example
 
-    The loaded bot XML is the source of truth.  Changing, disabling or adding
-    command flows in /data/bot_commands.xml changes this help text after reload
-    without touching Python code.
+
+def build_bot_help_artifacts() -> Tuple[str, Dict[str, Any]]:
+    """Generate WhatsApp help text and JSON metadata from bot_commands.xml.
+
+    The active XML command model is the source of truth.  For flow XML, visible
+    help entries are derived from enabled flows that start with a
+    whatsapp_watchdog command input.  The display text comes from
+    <head><description>, and the start command comes from
+    <step><input module="whatsapp_watchdog" type="command"><expect><command>.
+    After /data/bot_commands.xml is replaced or reloaded via MQTT, this function
+    is called again and the rebuilt help is published on messenger/bot/help/#.
     """
     wake_word = effective_wake_word()
-    enabled_commands = [cmd for cmd in BOT_COMMANDS if cmd.enabled]
-    title = f"*{wake_word} Befehle*"
-    lines = [title, "──────────────"]
-    source = BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE))
-    fmt = BOT_COMMANDS_META.get("format", "xml")
-    lines.append(f"Quelle: aktive XML ({fmt})")
-    if source:
-        lines.append(f"Datei: {source}")
-    lines.append("")
-    if not enabled_commands:
+    entries: List[Dict[str, Any]] = []
+    for cmd in BOT_COMMANDS:
+        if not cmd.enabled:
+            continue
+        example = command_help_example(cmd, wake_word)
+        description = (cmd.description or cmd.name or cmd.command_id or cmd.trigger).strip()
+        if description and not description.endswith(('.', '!', '?')):
+            description += "."
+        entries.append({
+            "id": cmd.command_id,
+            "flow_id": cmd.flow_id,
+            "step_id": cmd.step_id,
+            "name": cmd.name or cmd.command_id,
+            "category": cmd.category,
+            "command": cmd.trigger,
+            "example": example,
+            "description": description,
+        })
+
+    title = f"*{wake_word} Hilfe*"
+    lines = [title, "────────────", ""]
+    if not entries:
         lines.append("Keine Befehle geladen.")
-        return "\n".join(lines)
-    for cmd in enabled_commands:
-        trigger = cmd.trigger.strip()
-        example = cmd.example or f"{wake_word}: {trigger}"
-        # Keep examples aligned with the currently active wake word even when
-        # the XML provided a different default.
-        if ":" in example:
-            example = f"{wake_word}: {example.split(':', 1)[1].strip()}"
-        description = (cmd.description or cmd.command_id or trigger).strip().rstrip(".")
-        lines.append(f"- `{example}` - {description}")
-    return "\n".join(lines)
+    else:
+        for entry in entries:
+            lines.append(f"*{entry['example']}*")
+            if entry["description"]:
+                lines.append(entry["description"])
+            lines.append("")
+    text = "\n".join(lines).rstrip()
+    payload = {
+        "generated_at": now_iso(),
+        "source": BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)),
+        "format": BOT_COMMANDS_META.get("format", "xml"),
+        "version": BOT_COMMANDS_META.get("version", ""),
+        "wake_word": wake_word,
+        "valid": bool(BOT_COMMANDS_VALIDATION.get("valid", True)),
+        "entries": entries,
+        "text": text,
+    }
+    return text, payload
+
+
+def command_help_text() -> str:
+    """Return the current XML-generated WhatsApp help text."""
+    return BOT_HELP_TEXT or build_bot_help_artifacts()[0]
 
 def interpolate_template(template: str, values: Dict[str, Any]) -> str:
     text = template or ""
@@ -1412,6 +1464,8 @@ def publish_bot_commands(client: mqtt.Client) -> None:
     publish(client, topic("bot", "commands", "count"), len(BOT_COMMANDS))
     publish(client, topic("bot", "commands", "version"), BOT_COMMANDS_META.get("version", ""))
     publish(client, topic("bot", "commands", "source"), BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)))
+    publish(client, topic("bot", "help", "text"), BOT_HELP_TEXT)
+    publish(client, topic("bot", "help", "json"), BOT_HELP_JSON)
     publish_validation(
         client,
         topic("bot", "commands", "validation", "json"),
@@ -1790,8 +1844,8 @@ def handle_commands_set_xml(client: mqtt.Client, payload: str) -> None:
         topic("bot", "commands", "validation", "json"),
         valid=True,
         mode="set_xml",
-        accepted={"source": str(BOT_COMMANDS_FILE), "format": BOT_COMMANDS_META.get("format", "")},
-        remarks=["Bot-XML gespeichert und neu geladen"],
+        accepted={"source": str(BOT_COMMANDS_FILE), "format": BOT_COMMANDS_META.get("format", ""), "help_entries": len(BOT_HELP_JSON.get("entries", []))},
+        remarks=["Bot-XML gespeichert, Befehle neu geladen und Hilfe neu aufgebaut"],
     )
 
 

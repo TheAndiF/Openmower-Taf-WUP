@@ -90,3 +90,20 @@ Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN als Zahl ausgeben,
 `Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
 
 `Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
+
+## Erweiterung 2026-06-26: GPS-Status und Positionsplatzhalter
+
+Die Status-Cache-Liste enthält jetzt zusätzlich GPS-Topics:
+
+```text
+gps_state/json
+gps/position/json
+gps_position/json
+openmower/gps_state/json
+openmower/gps/position/json
+openmower/gps_position/json
+```
+
+`gps_state/json` liefert die GPS-Fahrbereitschaft und Diagnosewerte für `Mobert: Status` und das GPS-Untermenü.  Die Positionstopics sind Platzhalter für eine spätere MQTT-Schnittstellenversion mit echten WGS84-Koordinaten.  Lokale OpenMower-Kartenkoordinaten `pose.x` und `pose.y` werden nicht als Google-Maps-Koordinaten interpretiert.
+
+Hinweis: Der Controller ergänzt die internen Standard-Statuscache-Topics auch dann, wenn eine ältere `.env` noch eine eigene `OPENMOWER_STATUS_CACHE_TOPICS`-Liste ohne GPS-Topics enthält. Trotzdem sollte die `.env` beim Update mit der neuen `.env.example` abgeglichen werden.

@@ -18,6 +18,22 @@
   "bot": {
     "enabled": true,
     "wake_word": "",
-    "listen_group": ""
+    "listen_group": "",
+    "append_status_to_confirmations": false
+  },
+  "status_push": {
+    "enabled": false,
+    "interval_minutes": 30,
+    "min_interval_minutes": 5,
+    "target_group": ""
+  },
+  "gps": {
+    "position_placeholder": {
+      "enabled": true,
+      "latitude": "{latitude}",
+      "longitude": "{longitude}",
+      "position_text": "Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle",
+      "map_url": "https://www.google.com/maps?q={latitude},{longitude}"
+    }
   }
 }

@@ -191,6 +191,30 @@ def default_config() -> Dict[str, Any]:
             # listen_group is configured by MQTT, e.g. g001.
             # The controller resolves g001 to the internal WhatsApp group chatId.
             "listen_group": "",
+            # When enabled through WhatsApp, normal command confirmations append
+            # the current compact OpenMower status below the confirmation text.
+            "append_status_to_confirmations": False,
+        },
+        "status_push": {
+            "enabled": False,
+            "interval_minutes": 30,
+            "min_interval_minutes": 5,
+            # Empty means: send to the current default group.  When the mode is
+            # enabled from WhatsApp, the controller stores the listening group.
+            "target_group": "",
+        },
+        "gps": {
+            # Placeholder settings for the future MQTT interface that will provide
+            # real latitude/longitude values.  Until those values exist, Mobert
+            # shows a clear placeholder instead of pretending that local map x/y
+            # coordinates are Google Maps coordinates.
+            "position_placeholder": {
+                "enabled": True,
+                "latitude": "{latitude}",
+                "longitude": "{longitude}",
+                "position_text": "Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle",
+                "map_url": "https://www.google.com/maps?q={latitude},{longitude}",
+            },
         },
     }
 
@@ -217,6 +241,28 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
         history["limit"] = max(0, min(100, int(history.get("limit", 10))))
     except Exception:
         history["limit"] = 10
+    bot = normalized.setdefault("bot", {})
+    bot["enabled"] = as_bool(bot.get("enabled", True))
+    bot["append_status_to_confirmations"] = as_bool(bot.get("append_status_to_confirmations", False))
+    status_push = normalized.setdefault("status_push", {})
+    status_push["enabled"] = as_bool(status_push.get("enabled", False))
+    try:
+        status_push["min_interval_minutes"] = max(1, int(status_push.get("min_interval_minutes", 5)))
+    except Exception:
+        status_push["min_interval_minutes"] = 5
+    try:
+        requested_interval = int(status_push.get("interval_minutes", 30))
+    except Exception:
+        requested_interval = 30
+    status_push["interval_minutes"] = max(status_push["min_interval_minutes"], requested_interval)
+    status_push["target_group"] = str(status_push.get("target_group", "") or "").strip()
+    gps = normalized.setdefault("gps", {})
+    placeholder = gps.setdefault("position_placeholder", {})
+    placeholder["enabled"] = as_bool(placeholder.get("enabled", True))
+    placeholder["latitude"] = str(placeholder.get("latitude", "{latitude}") or "{latitude}")
+    placeholder["longitude"] = str(placeholder.get("longitude", "{longitude}") or "{longitude}")
+    placeholder["position_text"] = str(placeholder.get("position_text", "Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle") or "")
+    placeholder["map_url"] = str(placeholder.get("map_url", "https://www.google.com/maps?q={latitude},{longitude}") or "")
     return normalized
 
 
@@ -575,12 +621,18 @@ OPENMOWER_STATE: Dict[str, Any] = {
     "robot_state": {},
     "robot_state_previous": {},
     "robot_state_time": "",
+    "gps_state": {},
+    "gps_state_previous": {},
+    "gps_state_time": "",
+    "gps_position": {},
+    "gps_position_time": "",
     "wifi_percent": "unbekannt",
     "wifi_time": "",
     "last_mqtt_topic": "",
     "last_mqtt_payload": "",
     "last_mqtt_time": "",
 }
+GPS_LOSS_ALERT_ACTIVE = False
 MQTT_TOPIC_CACHE: Dict[str, Dict[str, Any]] = {}
 OPENMOWER_STATE_LOCK = threading.Lock()
 OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
@@ -600,8 +652,16 @@ STATUS_TIMEZONE = os.getenv("STATUS_TIMEZONE", "Europe/Berlin").strip() or "Euro
 # default because OpenMower also publishes a binary bson sibling there.
 DEFAULT_STATUS_CACHE_TOPICS = [
     "robot_state/json",
+    "gps_state/json",
+    # Placeholder/future interface: real WGS84 latitude/longitude values can be
+    # published here when the OpenMower MQTT interface provides them.
+    "gps/position/json",
+    "gps_position/json",
     "sensors/om_system_wifi_signal_percent/data",
     "openmower/robot_state/json",
+    "openmower/gps_state/json",
+    "openmower/gps/position/json",
+    "openmower/gps_position/json",
     "openmower/sensors/om_system_wifi_signal_percent/data",
 ]
 STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
@@ -613,6 +673,11 @@ def configured_status_cache_topics() -> List[str]:
         items = [item.strip().strip("/") for item in raw.split(",") if item.strip()]
     else:
         items = list(DEFAULT_STATUS_CACHE_TOPICS)
+    # Keep required status/GPS cache sources even if an older .env still defines
+    # OPENMOWER_STATUS_CACHE_TOPICS without the newer GPS placeholders.
+    for default_topic in DEFAULT_STATUS_CACHE_TOPICS:
+        if default_topic not in items:
+            items.append(default_topic)
     seen = set()
     result: List[str] = []
     for item in items:
@@ -1553,6 +1618,14 @@ def publish_state(client: mqtt.Client, refresh_groups: bool = True) -> None:
     publish(client, topic("bot", "listener", "group", "alias"), listener["group"]["alias"])
     publish(client, topic("bot", "listener", "group", "name"), listener["group"]["name"])
 
+    push = status_push_payload()
+    publish(client, topic("bot", "status_push", "json"), {"d": push})
+    publish(client, topic("bot", "status_push", "enabled"), str(push["enabled"]).lower())
+    publish(client, topic("bot", "status_push", "interval_minutes"), push["interval_minutes"])
+    publish(client, topic("bot", "status_push", "target", "alias"), push["target_group"])
+    publish(client, topic("bot", "status_push", "text"), push["text"])
+    publish(client, topic("bot", "append_status_to_confirmations"), append_status_setting_text())
+
     publish_bot_commands(client)
     publish(client, topic("waha", "actions", "json"), actions_payload())
 
@@ -1761,6 +1834,20 @@ def apply_bot_settings(data: Dict[str, Any]) -> Dict[str, Any]:
             raise RuntimeError("wake_word must not be empty")
         bot["wake_word"] = wake_word
         accepted["wake_word"] = wake_word
+    if "append_status_to_confirmations" in data:
+        bot["append_status_to_confirmations"] = as_bool(data.get("append_status_to_confirmations"))
+        accepted["append_status_to_confirmations"] = bot["append_status_to_confirmations"]
+    if isinstance(data.get("status_push"), dict):
+        push_data = data.get("status_push") or {}
+        push = CONFIG.setdefault("status_push", {})
+        if "enabled" in push_data:
+            push["enabled"] = as_bool(push_data.get("enabled"))
+        if "interval_minutes" in push_data:
+            minimum = int(push.get("min_interval_minutes", 5) or 5)
+            push["interval_minutes"] = max(minimum, int(push_data.get("interval_minutes")))
+        if "target_group" in push_data:
+            push["target_group"] = str(push_data.get("target_group") or "").strip()
+        accepted["status_push"] = status_push_payload()
     listener = data.get("listener") if isinstance(data.get("listener"), dict) else {}
     group_value = str(data.get("listen_group_alias") or data.get("group_alias") or listener.get("group_alias") or listener.get("group") or "")
     if group_value:
@@ -2050,6 +2137,249 @@ def format_progress_percent(value: Any) -> str:
     return f"{rounded:02d}%"
 
 
+def format_local_datetime_value(value: Any) -> str:
+    """Format ISO or Unix-style timestamps for the configured local time zone."""
+    if value is None or value == "":
+        return ""
+    try:
+        tz = ZoneInfo(STATUS_TIMEZONE)
+    except Exception:
+        tz = timezone.utc
+    try:
+        if isinstance(value, (int, float)) or str(value).strip().replace(".", "", 1).isdigit():
+            dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        else:
+            text = str(value).strip()
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(tz).strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(value)
+
+
+def automow_text(robot_state: Dict[str, Any]) -> str:
+    """Return the compact AutoMow/Zeitplan status including suspension end."""
+    automow = parse_bool_like(robot_state.get("AutoMow"))
+    suspension = robot_state.get("AutoMowSuspension")
+    if automow is False:
+        return "deaktiviert"
+    if suspension in (None, ""):
+        return "unbekannt" if automow is None else "aktiv"
+    suspension_text = str(suspension).strip()
+    suspension_bool = parse_bool_like(suspension)
+    if suspension_bool is False or suspension_text in {"0", "0.0"}:
+        return "aktiv"
+    if suspension_text.startswith("9999-") or suspension_text.lower() in {"true", "1", "on", "yes", "ja", "forever", "unlimited", "dauerhaft", "unbestimmt"}:
+        return "deaktiviert ohne Ablaufzeit"
+    until_text = format_local_datetime_value(suspension)
+    if until_text:
+        return f"deaktiviert bis {until_text}"
+    return "deaktiviert ohne Ablaufzeit"
+
+
+def gps_state_dict() -> Dict[str, Any]:
+    state = OPENMOWER_STATE.get("gps_state") or {}
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def gps_position_dict() -> Dict[str, Any]:
+    state = OPENMOWER_STATE.get("gps_position") or {}
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def gps_drive_ready_value(gps_state: Dict[str, Any]) -> Optional[bool]:
+    if "gps_drive_ready" in gps_state:
+        return parse_bool_like(gps_state.get("gps_drive_ready"))
+    if "available" in gps_state:
+        available = parse_bool_like(gps_state.get("available"))
+        if available is False:
+            return False
+    if parse_bool_like(gps_state.get("gps_timeout")) is True:
+        return False
+    if parse_bool_like(gps_state.get("recent_absolute_pose")) is False:
+        return False
+    rtk_state = str(gps_state.get("rtk_state") or "").strip().lower()
+    if rtk_state:
+        return rtk_state == "fixed"
+    return None
+
+
+def gps_drive_ready_text(gps_state: Dict[str, Any]) -> str:
+    ready = gps_drive_ready_value(gps_state)
+    if ready is True:
+        return "fahrbereit"
+    if ready is False:
+        return "nicht fahrbereit"
+    return "unbekannt"
+
+
+def first_present_value(data: Dict[str, Any], *paths: str) -> Any:
+    for path in paths:
+        value = json_path_value(data, path)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def parse_coordinate_pair(*sources: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
+    """Find future WGS84 latitude/longitude values without using local map x/y."""
+    lat_keys = ("latitude", "lat", "gps.latitude", "gps.lat", "position.latitude", "position.lat", "wgs84.latitude", "wgs84.lat")
+    lon_keys = ("longitude", "lon", "lng", "gps.longitude", "gps.lon", "gps.lng", "position.longitude", "position.lon", "position.lng", "wgs84.longitude", "wgs84.lon")
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        lat = parse_float_like(first_present_value(source, *lat_keys))
+        lon = parse_float_like(first_present_value(source, *lon_keys))
+        if lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
+            return lat, lon
+    return None, None
+
+
+def gps_placeholder_config() -> Dict[str, Any]:
+    placeholder = CONFIG.get("gps", {}).get("position_placeholder", {})
+    return placeholder if isinstance(placeholder, dict) else {}
+
+
+def gps_position_and_map_lines(gps_ready: Optional[bool]) -> List[str]:
+    if gps_ready is False:
+        return ["*Position:* nicht verfügbar"]
+    robot_state = dict(OPENMOWER_STATE.get("robot_state") or {})
+    gps_state = gps_state_dict()
+    gps_position = gps_position_dict()
+    lat, lon = parse_coordinate_pair(gps_position, gps_state, robot_state)
+    if lat is not None and lon is not None:
+        coord = f"{lat:.6f}, {lon:.6f}"
+        return [f"*Position:* {coord}", f"*Karte:* https://www.google.com/maps?q={lat:.6f},{lon:.6f}"]
+    placeholder = gps_placeholder_config()
+    if as_bool(placeholder.get("enabled", True)):
+        lat_text = str(placeholder.get("latitude") or "{latitude}")
+        lon_text = str(placeholder.get("longitude") or "{longitude}")
+        position_text = str(placeholder.get("position_text") or "Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle")
+        map_url = str(placeholder.get("map_url") or "https://www.google.com/maps?q={latitude},{longitude}")
+        map_url = map_url.replace("{latitude}", lat_text).replace("{longitude}", lon_text)
+        return [f"*Position:* {position_text}", f"*Karte:* {map_url}"]
+    return ["*Position:* nicht verfügbar"]
+
+
+def bot_gps_compact_lines() -> List[str]:
+    gps_state = gps_state_dict()
+    ready = gps_drive_ready_value(gps_state)
+    lines = [f"*GPS:* {gps_drive_ready_text(gps_state)}"]
+    lines.extend(gps_position_and_map_lines(ready))
+    return lines
+
+
+def bool_text(value: Any) -> str:
+    parsed = parse_bool_like(value)
+    if parsed is True:
+        return "ja"
+    if parsed is False:
+        return "nein"
+    return "unbekannt"
+
+
+def format_number(value: Any, suffix: str = "") -> str:
+    number = parse_float_like(value)
+    if number is None:
+        return "unbekannt"
+    text = f"{number:.3f}".rstrip("0").rstrip(".")
+    return f"{text}{suffix}"
+
+
+def bot_gps_text() -> str:
+    """Return detailed GPS diagnostics for the WhatsApp GPS submenu."""
+    wait_for_fresh_openmower_status()
+    gps_state = gps_state_dict()
+    ready = gps_drive_ready_value(gps_state)
+    reason = str(gps_state.get("gps_drive_block_reason") or gps_state.get("gps_drive_reason") or gps_state.get("gps_drive_label") or "unbekannt")
+    lines = [
+        "*Mobert GPS*",
+        "──────────",
+        "",
+        f"*GPS verfügbar:* {bool_text(gps_state.get('available'))}",
+        f"*Fahrbereit:* {gps_drive_ready_text(gps_state)}",
+        f"*Qualität:* {gps_state.get('quality', 'unbekannt')}",
+        f"*RTK:* {gps_state.get('rtk_state', 'unbekannt')}",
+        f"*Satelliten sichtbar:* {gps_state.get('visible', 'unbekannt')}",
+        f"*Satelliten benutzt:* {gps_state.get('used', 'unbekannt')}",
+        f"*Genauigkeit:* {format_number(gps_state.get('position_accuracy_m'), ' m')}",
+        f"*Max. Genauigkeit:* {format_number(gps_state.get('max_position_accuracy_m'), ' m')}",
+        f"*Orientierung gültig:* {bool_text(gps_state.get('orientation_valid'))}",
+        f"*Pose aktuell:* {bool_text(gps_state.get('recent_absolute_pose'))}",
+        f"*GPS-Timeout:* {bool_text(gps_state.get('gps_timeout'))}",
+        f"*Alter:* {format_number(gps_state.get('age_ms'), ' ms')}",
+        f"*Grund:* {reason}",
+    ]
+    lines.extend(bot_gps_compact_lines()[1:])
+    return "\n".join(lines)
+
+
+def status_push_config() -> Dict[str, Any]:
+    return dict(CONFIG.get("status_push") or {})
+
+
+def status_push_payload() -> Dict[str, Any]:
+    cfg = status_push_config()
+    target = str(cfg.get("target_group") or effective_default_group() or "")
+    return {
+        "enabled": as_bool(cfg.get("enabled", False)),
+        "interval_minutes": int(cfg.get("interval_minutes", 30) or 30),
+        "min_interval_minutes": int(cfg.get("min_interval_minutes", 5) or 5),
+        "target_group": target,
+        "target_name": group_subject(target),
+        "text": status_push_text(),
+    }
+
+
+def status_push_text() -> str:
+    cfg = status_push_config()
+    enabled = as_bool(cfg.get("enabled", False))
+    interval = int(cfg.get("interval_minutes", 30) or 30)
+    target = str(cfg.get("target_group") or effective_default_group() or "")
+    if enabled:
+        suffix = f" an {target} {group_subject(target)}" if target else ""
+        return f"Automatischer Status aktiv: alle {interval} Minuten{suffix}."
+    return "Automatischer Status ist aus."
+
+
+def append_status_after_confirmation_enabled() -> bool:
+    return as_bool(CONFIG.get("bot", {}).get("append_status_to_confirmations", False))
+
+
+def append_status_setting_text() -> str:
+    return "ein" if append_status_after_confirmation_enabled() else "aus"
+
+
+def should_append_status_to_confirmation(context: Dict[str, Any], message: str) -> bool:
+    if not append_status_after_confirmation_enabled():
+        return False
+    if not str(context.get("command_id") or ""):
+        return False
+    if str(context.get("request_id") or "").startswith("mqtt:"):
+        return False
+    command_id = str(context.get("command_id") or "")
+    processing_mode = str(context.get("processing.mode") or "")
+    excluded_commands = {
+        "help", "status", "groups", "target", "gps_details", "gps_status_details", "gps_details_alias",
+        "status_push_info", "append_status_info",
+    }
+    if command_id in excluded_commands or processing_mode in {"local_status", "local_gps", "local_reply", "local_groups", "local_default_group"}:
+        return False
+    if "*Mobert Status*" in message:
+        return False
+    return True
+
+
+def maybe_append_status_to_confirmation(message: str, context: Dict[str, Any]) -> str:
+    if should_append_status_to_confirmation(context, message):
+        wait_for_fresh_openmower_status(timeout_seconds=1.0)
+        return message.rstrip() + "\n\n" + bot_status_text()
+    return message
+
+
 def battery_text(robot_state: Dict[str, Any]) -> str:
     battery = format_percent_fraction(robot_state.get("battery_percentage"))
     charging = parse_bool_like(robot_state.get("is_charging"))
@@ -2116,12 +2446,17 @@ def bot_status_text() -> str:
         f"*Status:* {state_name}",
         f"*Fläche:* {current_area_text(robot_state)}",
         f"*Akku:* {battery_text(robot_state)}",
+        f"*Automatik:* {automow_text(robot_state)}",
         f"*WLAN:* {format_wifi_percent(wifi_value)}",
+    ]
+    lines.extend(bot_gps_compact_lines())
+    lines.extend([
         f"*Emergency:* {emergency_text(robot_state)}",
         f"*Fehler:* {error_text(robot_state)}",
         f"*MQTT:* {mqtt_connection_text()}",
-    ]
+    ])
     return "\n".join(lines)
+
 
 def bot_groups_text() -> str:
     lines = ["Mobert Gruppen:"]
@@ -2280,6 +2615,19 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
                 OPENMOWER_STATE["robot_state"] = root
                 OPENMOWER_STATE["robot_state_time"] = now_iso()
                 changed = True
+        elif mqtt_topic_matches_filter_or_suffix(source_topic, "gps_state/#"):
+            root = unwrap_data_root(parsed)
+            if isinstance(root, dict):
+                OPENMOWER_STATE["gps_state_previous"] = dict(OPENMOWER_STATE.get("gps_state") or {})
+                OPENMOWER_STATE["gps_state"] = root
+                OPENMOWER_STATE["gps_state_time"] = now_iso()
+                changed = True
+        elif mqtt_topic_matches_filter_or_suffix(source_topic, "gps/position/#") or mqtt_topic_matches_filter_or_suffix(source_topic, "gps_position/#"):
+            root = unwrap_data_root(parsed)
+            if isinstance(root, dict):
+                OPENMOWER_STATE["gps_position"] = root
+                OPENMOWER_STATE["gps_position_time"] = now_iso()
+                changed = True
         elif mqtt_topic_matches_suffix(source_topic, "sensors/om_system_wifi_signal_percent/data"):
             # Only the /data sibling is a human-readable number.  The parent
             # sensor topic can also contain /bson, which is binary and must not
@@ -2291,6 +2639,54 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
                 changed = True
         if changed:
             OPENMOWER_STATE_UPDATED.notify_all()
+
+
+def robot_current_state_upper() -> str:
+    robot_state = OPENMOWER_STATE.get("robot_state") or {}
+    if isinstance(robot_state, dict):
+        return str(robot_state.get("current_state") or "").strip().upper()
+    return ""
+
+
+def gps_loss_warning_text(gps_state: Dict[str, Any]) -> str:
+    reason = str(gps_state.get("gps_drive_block_reason") or gps_state.get("gps_drive_reason") or gps_state.get("gps_drive_label") or "GPS ist nicht fahrbereit")
+    return "\n".join([
+        "⚠️ GPS-Verlust während des Mähens erkannt.",
+        f"Zeit: {now_local_text()}",
+        f"Status: {robot_current_state_upper() or 'unbekannt'}",
+        f"GPS: {gps_drive_ready_text(gps_state)}",
+        f"RTK: {gps_state.get('rtk_state', 'unbekannt')}",
+        f"Genauigkeit: {format_number(gps_state.get('position_accuracy_m'), ' m')}",
+        f"Grund: {reason}",
+    ])
+
+
+def handle_internal_openmower_events(client: mqtt.Client, source_topic: str, parsed: Any, previous: Any) -> None:
+    """Handle cross-topic events that cannot be expressed in XML alone.
+
+    GPS loss while mowing needs the current robot_state and the current gps_state
+    at the same time.  The XML flow matcher can compare only the payload of the
+    triggering MQTT topic, so this one event is handled centrally in Python.
+    """
+    global GPS_LOSS_ALERT_ACTIVE
+    if mqtt_topic_matches_filter_or_suffix(source_topic, "robot_state/#"):
+        if robot_current_state_upper() != "MOWING":
+            GPS_LOSS_ALERT_ACTIVE = False
+        return
+    if not mqtt_topic_matches_filter_or_suffix(source_topic, "gps_state/#"):
+        return
+    root = unwrap_data_root(parsed)
+    previous_root = unwrap_data_root(previous)
+    if not isinstance(root, dict):
+        return
+    mowing = robot_current_state_upper() == "MOWING"
+    current_ready = gps_drive_ready_value(root)
+    previous_ready = gps_drive_ready_value(previous_root) if isinstance(previous_root, dict) else None
+    if mowing and current_ready is False and previous_ready is not False and not GPS_LOSS_ALERT_ACTIVE:
+        GPS_LOSS_ALERT_ACTIVE = True
+        send_text(client, effective_default_group(), gps_loss_warning_text(root), request_id="openmower:gps_loss")
+    elif current_ready is True or not mowing:
+        GPS_LOSS_ALERT_ACTIVE = False
 
 
 def wait_for_fresh_openmower_status(timeout_seconds: float = STATUS_FRESH_WAIT_SECONDS) -> bool:
@@ -2411,6 +2807,7 @@ def execute_output(client: mqtt.Client, output_cfg: Dict[str, Any], context: Dic
         elif target in {"{replyTarget}", "replyTarget"}:
             target = str(context.get("replyTarget", ""))
         message = render_value(str(output_cfg.get("message") or ""), context)
+        message = maybe_append_status_to_confirmation(message, context)
         if message.strip():
             send_text(client, target, message, request_id=str(context.get("request_id", "bot")))
         return message
@@ -2423,6 +2820,7 @@ def execute_output(client: mqtt.Client, output_cfg: Dict[str, Any], context: Dic
 def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str, Any], context: Dict[str, Any]) -> Tuple[bool, str]:
     processing = step.get("processing", {})
     mode = processing.get("mode", "passthrough")
+    context["processing.mode"] = mode
     try:
         if mode in {"passthrough", "confirmation_result"}:
             if mode == "confirmation_result":
@@ -2438,6 +2836,43 @@ def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str
         if mode == "local_status":
             wait_for_fresh_openmower_status()
             context["processing.result"] = bot_status_text()
+            return True, str(context.get("processing.result", ""))
+        if mode == "local_gps":
+            context["processing.result"] = bot_gps_text()
+            return True, str(context.get("processing.result", ""))
+        if mode == "set_status_push":
+            minutes = int(context.get("minutes") or context.get("interval") or 0)
+            cfg = CONFIG.setdefault("status_push", {})
+            minimum = int(cfg.get("min_interval_minutes", 5) or 5)
+            interval = max(minimum, minutes)
+            target = str(context.get("chatAlias") or effective_default_group() or "").strip()
+            cfg["enabled"] = True
+            cfg["interval_minutes"] = interval
+            if target:
+                cfg["target_group"] = target
+            save_config(CONFIG)
+            publish_state(client, refresh_groups=False)
+            note = f" Mindestintervall {minimum} Minuten wurde verwendet." if interval != minutes else ""
+            context["processing.result"] = f"Automatischer Status aktiv: alle {interval} Minuten.{note}"
+            return True, str(context.get("processing.result", ""))
+        if mode == "status_push_off":
+            CONFIG.setdefault("status_push", {})["enabled"] = False
+            save_config(CONFIG)
+            publish_state(client, refresh_groups=False)
+            context["processing.result"] = "Automatischer Status wurde ausgeschaltet."
+            return True, str(context.get("processing.result", ""))
+        if mode == "status_push_info":
+            context["processing.result"] = status_push_text()
+            return True, str(context.get("processing.result", ""))
+        if mode == "set_append_status":
+            value = render_value(str(processing.get("value") or "false"), context)
+            CONFIG.setdefault("bot", {})["append_status_to_confirmations"] = as_bool(value)
+            save_config(CONFIG)
+            publish_state(client, refresh_groups=False)
+            context["processing.result"] = f"Status nach Bestaetigungen ist jetzt {append_status_setting_text()}."
+            return True, str(context.get("processing.result", ""))
+        if mode == "append_status_info":
+            context["processing.result"] = f"Status nach Bestaetigungen ist {append_status_setting_text()}."
             return True, str(context.get("processing.result", ""))
         if mode == "local_groups":
             context["processing.result"] = bot_groups_text()
@@ -2569,6 +3004,7 @@ def finish_pending_confirmation(pending_id: str, result: str, source_topic: str,
 def handle_flow_mqtt_event(client: mqtt.Client, source_topic: str, payload: str) -> bool:
     handled = False
     parsed, previous = update_mqtt_state_cache(source_topic, payload)
+    handle_internal_openmower_events(client, source_topic, parsed, previous)
     # Confirmation steps have priority because they belong to a command that is already in progress.
     matching_pending: List[str] = []
     with PENDING_CONFIRMATIONS_LOCK:
@@ -2888,6 +3324,37 @@ def refresh_loop(client: mqtt.Client) -> None:
             publish_error(client, "refresh_loop", exc)
 
 
+def status_push_loop(client: mqtt.Client) -> None:
+    last_sent_monotonic = 0.0
+    last_signature = ""
+    while RUNNING:
+        time.sleep(5)
+        cfg = status_push_config()
+        if not as_bool(cfg.get("enabled", False)):
+            last_sent_monotonic = 0.0
+            last_signature = ""
+            continue
+        interval = max(int(cfg.get("min_interval_minutes", 5) or 5), int(cfg.get("interval_minutes", 30) or 30))
+        target = str(cfg.get("target_group") or effective_default_group() or "").strip()
+        signature = f"{target}:{interval}"
+        if signature != last_signature:
+            last_signature = signature
+            last_sent_monotonic = 0.0
+        if not target:
+            log("Status push is enabled but no target group is configured")
+            last_sent_monotonic = time.monotonic()
+            continue
+        if last_sent_monotonic and time.monotonic() - last_sent_monotonic < interval * 60:
+            continue
+        try:
+            wait_for_fresh_openmower_status(timeout_seconds=1.0)
+            send_text(client, target, bot_status_text(), request_id="bot:status_push")
+            last_sent_monotonic = time.monotonic()
+        except Exception as exc:
+            last_sent_monotonic = time.monotonic()
+            publish_error(client, "status_push_loop", exc)
+
+
 def handle_signal(signum: int, frame: Any) -> None:
     global RUNNING
     RUNNING = False
@@ -2917,6 +3384,8 @@ def main() -> None:
     client.connect(MQTT_HOST, MQTT_PORT, 60)
     thread = threading.Thread(target=refresh_loop, args=(client,), daemon=True)
     thread.start()
+    status_thread = threading.Thread(target=status_push_loop, args=(client,), daemon=True)
+    status_thread.start()
     client.loop_forever()
 
 

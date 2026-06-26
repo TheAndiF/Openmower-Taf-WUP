@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.0 - 2026-06-26 - WhatsApp status GPS automation
+
+- Extended `Mobert: Status` with AutoMow/Zeitplan information, suspension end time handling, compact GPS readiness and GPS position/map placeholders.
+- Added GPS detail submenu commands `Mobert: GPS` and `Mobert: GPS Status` using cached `gps_state/json` diagnostics.
+- Added status push commands for automatic status messages every configurable X minutes.
+- Added WhatsApp commands to enable, show or disable appending the compact status below normal command confirmations.
+- Replaced the old drive-off/charging-finished default notifications with the requested `UNDOCKING` and `DOCKING -> IDLE` notifications.
+- Kept emergency notification and added Python-side GPS-loss-while-mowing detection because it requires combined `robot_state` and `gps_state` context.
+- Prepared placeholder GPS position topics for a later MQTT interface that provides real WGS84 latitude/longitude values.
+- Updated README, MQTT documentation and added `docs/whatsapp-status-gps-automation.md`.
+
 ## 2026-06-26 - v1.4 - XML-generated help snapshots
 
 - Rebuilt `Mobert: ?` as an explicit help artifact generated from the active `bot_commands.xml`.

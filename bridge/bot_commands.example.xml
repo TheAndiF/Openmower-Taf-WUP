@@ -102,6 +102,165 @@
       </step>
     </flow>
 
+    <flow id="gps_details">
+      <head>
+        <name>GPS details</name>
+        <description>GPS-Untermenue mit Detailwerten anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>GPS</command>
+          </expect>
+        </input>
+        <processing mode="local_gps" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="gps_status_details">
+      <head>
+        <name>GPS status details</name>
+        <description>GPS-Untermenue mit Detailwerten anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>GPS Status</command>
+          </expect>
+        </input>
+        <processing mode="local_gps" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="status_push_set">
+      <head>
+        <name>Status push set</name>
+        <description>Automatischen Status alle X Minuten einschalten.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status alle {minutes}</command>
+          </expect>
+          <parameters>
+            <parameter name="minutes" type="integer" required="true" min="1" />
+          </parameters>
+        </input>
+        <processing mode="set_status_push" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="status_push_off">
+      <head>
+        <name>Status push off</name>
+        <description>Automatischen Status ausschalten.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status automatisch aus</command>
+          </expect>
+        </input>
+        <processing mode="status_push_off" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="status_push_info">
+      <head>
+        <name>Status push info</name>
+        <description>Automatischen Status anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status automatisch</command>
+          </expect>
+        </input>
+        <processing mode="status_push_info" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="append_status_on">
+      <head>
+        <name>Append status on</name>
+        <description>Status nach Befehlsbestaetigungen einschalten.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status nach Befehl ein</command>
+          </expect>
+        </input>
+        <processing mode="set_append_status">
+          <value>true</value>
+        </processing>
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="append_status_off">
+      <head>
+        <name>Append status off</name>
+        <description>Status nach Befehlsbestaetigungen ausschalten.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status nach Befehl aus</command>
+          </expect>
+        </input>
+        <processing mode="set_append_status">
+          <value>false</value>
+        </processing>
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
+    <flow id="append_status_info">
+      <head>
+        <name>Append status info</name>
+        <description>Status nach Befehlsbestaetigungen anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>Status nach Befehl</command>
+          </expect>
+        </input>
+        <processing mode="append_status_info" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
     <flow id="groups">
       <head>
         <name>Groups</name>
@@ -400,14 +559,14 @@
 
 
     <!-- OpenMower ROS MQTT topics use the configured OM_MQTT_TOPIC_PREFIX.
-         The default package follows OM_MQTT_TOPIC_PREFIX=openmower. -->
+         The default package follows the unprefixed topics observed on the target system.
+         GPS latitude/longitude are placeholders until a later MQTT interface version provides them. -->
     <flow id="openmower_wifi_cache">
       <head>
         <name>OpenMower WLAN cache</name>
         <description>Aktualisiert die WLAN-Staerke aus dem ROS-MQTT-System fuer Statusmeldungen.</description>
         <enabled>true</enabled>
       </head>
-
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
@@ -415,83 +574,72 @@
             <payloadNotEmpty>true</payloadNotEmpty>
           </expect>
         </input>
-
         <processing mode="passthrough" />
       </step>
     </flow>
-
-    <flow id="openmower_drives_off_notification">
+    <flow id="openmower_undocking_notification">
       <head>
-        <name>OpenMower drives off notification</name>
-        <description>Meldet standardmaessig per WhatsApp, wenn OpenMower aus dem IDLE-Zustand losfaehrt.</description>
+        <name>OpenMower undocking notification</name>
+        <description>Meldet einmalig per WhatsApp, wenn OpenMower in den Zustand UNDOCKING wechselt.</description>
         <enabled>true</enabled>
       </head>
-
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
             <topic>robot_state/json</topic>
             <json>
-              <field name="current_state" equals="MOWING" previousNotEquals="MOWING" />
+              <field name="current_state" equals="UNDOCKING" previousNotEquals="UNDOCKING" />
               <field name="emergency" equals="0" />
             </json>
           </expect>
         </input>
-
         <processing mode="passthrough" />
-
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
-          <message>🚜 OpenMower fährt los.
-Zeit: {timestamp}
-Status: {current_state}
-Fläche: {areaText}
-Akku: {batteryText}
-WLAN: {wifi_percent}
-MQTT: {mqttConnection}</message>
+          <message>
+            🚜 OpenMower dockt ab.
+            Zeit: {timestampLocal}
+            Status: {current_state}
+            Akku: {batteryText}
+            MQTT: {mqttConnection}
+          </message>
         </output>
       </step>
     </flow>
-
-    <flow id="openmower_charging_finished_notification">
+    <flow id="openmower_docking_idle_notification">
       <head>
-        <name>OpenMower charging finished notification</name>
-        <description>Meldet standardmaessig per WhatsApp, wenn der Ladevorgang beendet wurde.</description>
+        <name>OpenMower docking to idle notification</name>
+        <description>Meldet einmalig per WhatsApp, wenn OpenMower von DOCKING nach IDLE wechselt und damit das Andocken abgeschlossen ist.</description>
         <enabled>true</enabled>
       </head>
-
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
             <topic>robot_state/json</topic>
             <json>
-              <field name="is_charging" equals="0" previousEquals="1" />
+              <field name="current_state" equals="IDLE" previousEquals="DOCKING" />
             </json>
           </expect>
         </input>
-
         <processing mode="passthrough" />
-
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
-          <message>🔋 Laden beendet.
-Zeit: {timestamp}
-Status: {current_state}
-Fläche: {areaText}
-Akku: {batteryText}
-WLAN: {wifi_percent}
-MQTT: {mqttConnection}</message>
+          <message>
+            🔋 OpenMower ist angedockt, Laden beginnt.
+            Zeit: {timestampLocal}
+            Status: {current_state}
+            Akku: {batteryText}
+            MQTT: {mqttConnection}
+          </message>
         </output>
       </step>
     </flow>
-
     <flow id="openmower_error_notification">
       <head>
         <name>OpenMower error notification</name>
         <description>Meldet standardmaessig per WhatsApp, wenn ROS-MQTT einen OpenMower-Fehler bzw. Emergency meldet.</description>
         <enabled>true</enabled>
       </head>
-
       <step id="start">
         <input module="mqtt_watchdog" type="topic">
           <expect>
@@ -501,23 +649,22 @@ MQTT: {mqttConnection}</message>
             </json>
           </expect>
         </input>
-
         <processing mode="passthrough" />
-
         <output module="whatsapp_output" type="send">
           <target>default_group</target>
-          <message>⚠️ OpenMower Fehler/Emergency erkannt.
-Zeit: {timestamp}
-Status: {current_state}
-Fläche: {areaText}
-Akku: {batteryText}
-WLAN: {wifi_percent}
-MQTT: {mqttConnection}
-Fehler: {errorText}</message>
+          <message>
+            ⚠️ OpenMower Fehler/Emergency erkannt.
+            Zeit: {timestampLocal}
+            Status: {current_state}
+            Fläche: {areaText}
+            Akku: {batteryText}
+            WLAN: {wifi_percent}
+            MQTT: {mqttConnection}
+            Fehler: {errorText}
+          </message>
         </output>
       </step>
     </flow>
-
   </flows>
 
 </mobertBotConfig>

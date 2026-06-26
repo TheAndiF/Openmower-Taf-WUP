@@ -471,3 +471,30 @@ Nach diesen Aktionen wird die Hilfe neu aufgebaut und erneut veroeffentlicht:
 messenger/bot/commands/set/xml
 messenger/bot/commands/set/renew/json
 ```
+
+## Mobert Status, GPS und Status Push
+
+Ab der WUP-Erweiterung vom 2026-06-26 nutzt `Mobert: Status` zusätzliche OpenMower Statusquellen:
+
+```text
+robot_state/json
+gps_state/json
+gps/position/json
+gps_position/json
+sensors/om_system_wifi_signal_percent/data
+```
+
+Die entsprechenden `openmower/`-präfixierten Varianten sind ebenfalls in der Status-Cache-Konfiguration vorbereitet.
+
+Neue Mobert-Zustände werden unter `messenger/bot/#` veröffentlicht:
+
+```text
+messenger/bot/status_push/json
+messenger/bot/status_push/enabled
+messenger/bot/status_push/interval_minutes
+messenger/bot/status_push/target/alias
+messenger/bot/status_push/text
+messenger/bot/append_status_to_confirmations
+```
+
+Die GPS-Positionstopics sind Platzhalter für eine spätere MQTT-Schnittstellenversion. Sobald echte WGS84-Koordinaten als `latitude`/`longitude`, `lat`/`lon` oder `lat`/`lng` eintreffen, erzeugt der Status daraus automatisch den Google-Maps-Link.

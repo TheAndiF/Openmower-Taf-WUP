@@ -21,8 +21,11 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Publish the raw command/flow XML and parsed command JSON below `messenger/bot/commands/#`.
 - Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings remain compatible and override the XML defaults at runtime.
 - Use the WhatsApp watchdog module from the XML for the command syntax `Mobert: Befehl`.
-- Send standard WhatsApp notifications from ROS MQTT for mower drive-off, charging finished and emergency/error events.
-- Format `Mobert: Status` for WhatsApp with readable local time, bold labels, area progress, Emergency and Fehler lines.
+- Send standard WhatsApp notifications from ROS MQTT for undocking, docking-to-idle charging start, emergency/error and GPS loss while mowing.
+- Format `Mobert: Status` for WhatsApp with readable local time, bold labels, area progress, Automatik/Zeitplan status, compact GPS readiness and GPS position placeholders.
+- Provide a WhatsApp GPS submenu with detailed `gps_state` diagnostics.
+- Send automatic status pushes every configurable X minutes.
+- Optionally append the current status below normal WhatsApp command confirmations.
 - Store runtime configuration persistently under `/data/config.json`.
 - Build multi-platform Docker images through GitHub Actions.
 
@@ -71,9 +74,10 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 | Flow | ROS MQTT input | WhatsApp output |
 |---|---|---|
-| `openmower_drives_off_notification` | `robot_state/json`, `current_state` changes to `MOWING` and `emergency=0` | Message that the mower is driving off, including timestamp, state, area, battery, WLAN strength and MQTT connection. |
-| `openmower_charging_finished_notification` | `robot_state/json`, `is_charging` changes from `1` to `0` | Message that charging has finished. |
+| `openmower_undocking_notification` | `robot_state/json`, `current_state` changes to `UNDOCKING` and `emergency=0` | Message that the mower is undocking. |
+| `openmower_docking_idle_notification` | `robot_state/json`, `current_state` changes from `DOCKING` to `IDLE` | Message that docking has completed and charging begins. |
 | `openmower_error_notification` | `robot_state/json`, `emergency` changes to `1` | Warning message for OpenMower error/emergency. |
+| Internal GPS loss notification | `gps_state/json` becomes not drive-ready while cached `robot_state.current_state=MOWING` | Warning that GPS was lost during mowing. |
 | `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
 
 The supplied XML follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
@@ -99,6 +103,104 @@ Example:
 `Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload. Starting with v1.4, the generated help is also rebuilt on every MQTT XML replacement/reload and published as retained MQTT snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
 
 For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
+
+
+## WhatsApp status, GPS placeholders and automation
+
+`Mobert: Status` now includes the compact GPS and automation fields requested for the WUP project:
+
+```text
+*Mobert Status*
+──────────────
+
+*Zeit:* 26.06.2026 14:30:00
+*Status:* MOWING
+*Fläche:* Fläche 4 (42%)
+*Akku:* 68 %
+*Automatik:* aktiv
+*WLAN:* 64 %
+*GPS:* fahrbereit
+*Position:* Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle
+*Karte:* https://www.google.com/maps?q={latitude},{longitude}
+*Emergency:* nein
+*Fehler:* keiner
+*MQTT:* verbunden
+```
+
+When GPS is not ready to drive, the compact status intentionally stays short:
+
+```text
+*GPS:* nicht fahrbereit
+*Position:* nicht verfügbar
+```
+
+No `Karte: nicht verfügbar` line is emitted.  Detailed GPS quality, RTK status, satellites, accuracy, timeout and reasons are available in the GPS submenu instead.
+
+### GPS submenu
+
+The following WhatsApp commands show detailed values from `gps_state/json`:
+
+```text
+Mobert: GPS
+Mobert: GPS Status
+```
+
+The submenu shows `available`, `quality`, `visible`, `used`, `rtk_state`, `gps_drive_ready`, `position_accuracy_m`, `max_position_accuracy_m`, `orientation_valid`, `recent_absolute_pose`, `gps_timeout`, `age_ms` and the available GPS drive reason/block reason.
+
+### GPS position placeholders
+
+The package does not convert OpenMower local map `pose.x/y` into Google Maps coordinates.  Until the later MQTT interface exposes real WGS84 `latitude`/`longitude`, the status uses the configured placeholder from `/data/config.json`:
+
+```json
+"gps": {
+  "position_placeholder": {
+    "enabled": true,
+    "latitude": "{latitude}",
+    "longitude": "{longitude}",
+    "position_text": "Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle",
+    "map_url": "https://www.google.com/maps?q={latitude},{longitude}"
+  }
+}
+```
+
+When real coordinates become available, publish them on one of the prepared cache topics, for example `gps/position/json` or `gps_position/json`, using fields such as `latitude` and `longitude`.  The status will then show the numeric position and a real Google Maps link automatically.
+
+### Automatic status push
+
+Use WhatsApp commands:
+
+```text
+Mobert: Status alle 15
+Mobert: Status automatisch
+Mobert: Status automatisch aus
+```
+
+The default minimum interval is 5 minutes.  The target group is the current listening/default group unless `status_push.target_group` is configured explicitly.
+
+### Status after command confirmations
+
+Use WhatsApp commands:
+
+```text
+Mobert: Status nach Befehl ein
+Mobert: Status nach Befehl
+Mobert: Status nach Befehl aus
+```
+
+When enabled, normal command confirmations such as Start, Pause, Stop, Zeitplan ein/aus and MQTT confirmations append the current compact status.  The append is not applied to status, help, group, target or GPS submenu replies.
+
+### One-time notifications
+
+The active XML sends one-time WhatsApp notifications for:
+
+| Event | Trigger |
+|---|---|
+| Undocking | `robot_state/json` changes to `current_state=UNDOCKING` |
+| Docking complete / charging starts | `robot_state/json` changes from `current_state=DOCKING` to `current_state=IDLE` |
+| Emergency | `emergency` changes to `1` |
+| GPS loss while mowing | `gps_state/json` becomes not drive-ready while the cached `robot_state.current_state` is `MOWING` |
+
+There is intentionally no separate notification for entering `DOCKING`.
 
 ## MQTT base topic
 

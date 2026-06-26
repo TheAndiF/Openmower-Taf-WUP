@@ -1,15 +1,20 @@
-BL_Generate Mobert help from XML command model
+BL_Add Mobert GPS status automation
 Date: 2026-06-26
 Summary:
-- Generated the Mobert help response from the active bot_commands.xml command model.
-- Used enabled WhatsApp command flows as visible help entries with start commands from <expect><command> and descriptions from <head><description>.
-- Rebuilt help after MQTT XML replacement and XML reload operations.
-- Published the generated help as retained MQTT text and JSON snapshots for verification.
+- Extended Mobert status with AutoMow/Zeitplan information, GPS readiness and GPS position/map placeholders for the future MQTT GPS coordinate interface.
+- Added a GPS detail submenu, configurable automatic status push, and a WhatsApp switch for appending status after command confirmations.
+- Updated one-time notifications to cover UNDOCKING, DOCKING -> IDLE, Emergency, and GPS loss while mowing without adding a standalone DOCKING notification.
+- Documented the new commands, MQTT topics, placeholder handling and changed files.
 Changed files:
-- bridge/controller.py
+- .env.example
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
-- docs/xml-generated-help.md
-- docs/mobert-status-formatting.md
+- bridge/controller.py
+- bridge/bot_commands.example.xml
+- bridge/config.example.json
+- controller_data/bot_commands.xml
+- controller_data/config.json
 - docs/mqtt-topics.md
+- docs/status-cache-subscriptions.md
+- docs/whatsapp-status-gps-automation.md

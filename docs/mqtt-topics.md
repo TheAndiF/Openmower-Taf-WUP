@@ -433,6 +433,8 @@ Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Mel
 | `openmower/robot_state/json` | OpenMower Statusmeldung mit `openmower/` Prefix, wird ebenfalls akzeptiert |
 | `sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke ohne Prefix; nur dieses Text-/Zahlen-Topic fuer WLAN verwenden |
 | `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke mit `openmower/` Prefix, wird ebenfalls akzeptiert |
+| `area_queue/json`, `mow_area/json`, `mow_area/status/json`, `mowing_area/json`, `mowing/area_queue/json` | MowArea-Cache fuer Flächenname, `mowing_order` und Pfadpunkte ohne Prefix |
+| `openmower/area_queue/json`, `openmower/mow_area/json`, `openmower/mow_area/status/json`, `openmower/mowing_area/json`, `openmower/mowing/area_queue/json` | MowArea-Cache mit `openmower/` Prefix |
 | `sensors/om_system_wifi_signal_percent/bson` | Binaeres Geschwistertopic; wird fuer den WLAN-Cache bewusst ignoriert |
 
 Wichtige Felder aus `robot_state`:
@@ -440,7 +442,9 @@ Wichtige Felder aus `robot_state`:
 | Feld | Verwendung |
 |---|---|
 | `current_state` | Statuszeile und Losfahr-Erkennung |
-| `current_area` / `current_area_id` | Flächenanzeige |
+| `checkpoint_area_id` | bevorzugte aktive Mähfläche fuer Status und MowArea |
+| `current_area` / `current_area_id` | Fallback fuer Flächenanzeige |
+| `current_path` / `current_path_index` | Pfad und Pfadindex fuer MowArea und Fortschrittsberechnung |
 | `battery_percentage` | Akkustand, Werte 0..1 werden automatisch in Prozent umgerechnet |
 | `is_charging` | Ladezustand in der Akku-Zeile, z. B. `95 % (lädt)` |
 | `emergency` | Fehler-/Notfall-Erkennung |
@@ -511,3 +515,27 @@ messenger/bot/append_status_to_confirmations
 ```
 
 Die GPS-Positionstopics sind Platzhalter für eine spätere MQTT-Schnittstellenversion. Sobald echte WGS84-Koordinaten als `latitude`/`longitude`, `lat`/`lon` oder `lat`/`lng` eintreffen, erzeugt der Status daraus automatisch den Google-Maps-Link.
+
+
+## MowArea-Status
+
+Der Controller cached Area-Queue-Payloads, die `area_queue` und `areas` enthalten. Fuer `Mobert: Status` wird daraus nur die kurze Anzeige erzeugt:
+
+```text
+*Fläche:* Plantage
+*Bearbeitung:* 72.0 %
+```
+
+`Mobert: MowArea` liefert die aktuellen Detailwerte ohne Erklaertext:
+
+```text
+Fläche: Plantage
+Flächenreihenfolge: 50
+Bearbeitung: 72.0 %
+Pfad: 1
+Pfadindex: 8261
+```
+
+Die Berechnung nutzt `checkpoint_area_id` als aktive Flaeche, den Namen und `mowing_order` aus `area_queue` und den Fortschritt aus `current_path_index / Gesamtzahl der Punkte in areas[area_id].paths[].points`. `current_action_progress` wird nur als Fallback verwendet, wenn es plausibel groesser als 0 ist.
+
+Wenn die Installation einen anderen MQTT-Topic fuer diese Area-Queue verwendet, muss er in `OPENMOWER_STATUS_CACHE_TOPICS` ergaenzt werden.

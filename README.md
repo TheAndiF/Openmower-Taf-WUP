@@ -83,7 +83,7 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 
 The supplied XML follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
 
-`Mobert: Status` uses the latest cached ROS MQTT values and sends a WhatsApp-friendly reply. The timestamp is shown in the configured local time zone (`STATUS_TIMEZONE`, default `Europe/Berlin`). Field labels are bold, the title is visually separated by a line, and Emergency/Fehler are always visible. If OpenMower is actively mowing an area, the current progress from `current_action_progress` is appended directly behind the area as `(00%)` through `(100%)`.
+`Mobert: Status` uses the latest cached ROS MQTT values and sends a WhatsApp-friendly reply. The timestamp is shown in the configured local time zone (`STATUS_TIMEZONE`, default `Europe/Berlin`). Field labels are bold, the title is visually separated by a line, and Emergency/Fehler are always visible. If OpenMower is actively mowing an area, the status shows only the human-readable area name and the calculated mowing progress, for example `Fläche: Plantage` and `Bearbeitung: 72.0 %`.
 
 Example:
 
@@ -93,7 +93,8 @@ Example:
 
 *Zeit:* 25.06.2026 23:24:37
 *Status:* MOWING
-*Fläche:* Fläche 1 (42%)
+*Fläche:* Plantage
+*Bearbeitung:* 72.0 %
 *Akku:* 53 % (lädt)
 *WLAN:* 64 %
 *Emergency:* nein
@@ -104,6 +105,20 @@ Example:
 `Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload. Starting with v1.4, the generated help is also rebuilt on every MQTT XML replacement/reload and published as retained MQTT snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
 
 For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
+
+### MowArea command
+
+`Mobert: MowArea` returns only the current mowing-area values, without explanatory text:
+
+```text
+Fläche: Plantage
+Flächenreihenfolge: 50
+Bearbeitung: 72.0 %
+Pfad: 1
+Pfadindex: 8261
+```
+
+The normal `Mobert: Status` reply intentionally stays shorter and only shows area name plus progress. The command also disables the append-status suffix for status-like replies so the status output is not duplicated.
 
 
 ## WhatsApp status, GPS placeholders and automation
@@ -116,7 +131,8 @@ For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and W
 
 *Zeit:* 26.06.2026 14:30:00
 *Status:* MOWING
-*Fläche:* Fläche 4 (42%)
+*Fläche:* Plantage
+*Bearbeitung:* 72.0 %
 *Akku:* 68 %
 *Automatik:* aktiv
 *WLAN:* 64 %

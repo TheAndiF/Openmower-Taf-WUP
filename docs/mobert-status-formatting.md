@@ -14,7 +14,8 @@ Die Statusantwort nutzt WhatsApp-kompatible Formatierung:
 
 *Zeit:* 25.06.2026 23:24:37
 *Status:* MOWING
-*Fläche:* Fläche 1 (42%)
+*Fläche:* Plantage
+*Bearbeitung:* 72.0 %
 *Akku:* 53 % (lädt)
 *WLAN:* 64 %
 *Emergency:* nein
@@ -29,22 +30,32 @@ Hinweise:
 - Die Zeit wird lokal formatiert. Standard ist `Europe/Berlin`.
 - Die Zeitzone kann mit `STATUS_TIMEZONE` gesetzt werden.
 
-## Fortschritt hinter der Flaeche
+## MowArea und Flaechenfortschritt
 
-Wenn OpenMower eine aktive Flaeche maeht, haengt der Controller den Fortschritt direkt an die Flaeche an:
+`Mobert: Status` zeigt die aktive Mähfläche bewusst kurz an:
 
 ```text
-*Fläche:* Fläche 1 (07%)
-*Fläche:* Fläche 1 (42%)
-*Fläche:* Fläche 1 (100%)
+*Fläche:* Plantage
+*Bearbeitung:* 72.0 %
 ```
 
-Quelle ist `current_action_progress` aus `robot_state/json`. Werte zwischen `0` und `1` werden als Bruchteil interpretiert und in Prozent umgerechnet. Werte zwischen `0` und `100` werden als Prozentwert gelesen. Die Ausgabe wird auf `00%` bis `100%` begrenzt.
+Der ausführlichere Befehl `Mobert: MowArea` liefert nur die aktuellen Mähflächenwerte ohne Erklärung:
+
+```text
+Fläche: Plantage
+Flächenreihenfolge: 50
+Bearbeitung: 72.0 %
+Pfad: 1
+Pfadindex: 8261
+```
+
+Die aktive Fläche wird über `checkpoint_area_id` aus `robot_state/json` bestimmt. Der lesbare Name und die Flächenreihenfolge kommen aus dem gecachten `area_queue`-Payload. Der Fortschritt wird bevorzugt aus `current_path_index` im Verhältnis zur Gesamtzahl der geplanten Punkte in `areas[area_id].paths[].points` berechnet. `current_action_progress` wird nur als Fallback genutzt, wenn es einen plausiblen Wert groesser als 0 liefert; dadurch wird kein irreführendes `00%` mehr angezeigt.
 
 Bei keiner aktiven Flaeche bleibt die Ausgabe:
 
 ```text
 *Fläche:* keine aktive Fläche
+*Bearbeitung:* nicht aktiv
 ```
 
 ## Emergency und Fehler

@@ -1,21 +1,21 @@
-BL_Add WAHA session auto repair
+BL_Add MowArea status progress
 Date: 2026-06-27
 Summary:
-- Added configurable WAHA session selection with WAHA_SESSION.
-- Added automatic WAHA session self-healing: start STOPPED sessions and restart FAILED/CRASHED or stuck STARTING sessions.
-- Added watchdog and send-path readiness checks with cooldown, wait timeout and maximum restarts per hour.
-- Published retained diagnostics under messenger/waha/session/repair/# and added manual MQTT actions for session start/restart.
-- Added WHATSAPP_START_SESSION to the WAHA compose example so the configured session can start when WAHA starts.
-- Updated GPS status coordinate extraction to prefer valid world_pose WGS84 coordinates for Google Maps and never use local pose.x/y.
-- Documented the new environment variables, MQTT topics and operational checks.
+- Added the MowArea command to return only the current mowing-area values.
+- Changed the normal Status reply to show only the active area name and calculated progress.
+- Calculated mowing progress from checkpoint_area_id, current_path_index and cached area path points instead of showing misleading 00% values from current_action_progress.
+- Cached Area-Queue payloads containing area_queue and areas and added default topic subscriptions for common MowArea sources.
+- Prevented append-status output for status-like commands so Status is not duplicated when append_status_to_confirmations is enabled.
+- Documented the new Status and MowArea behavior.
 Changed files:
 - .env.example
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
+- bridge/bot_commands.example.xml
 - bridge/controller.py
-- bridge/config.example.json
 - compose.example.yaml
-- controller_data/config.json
+- controller_data/bot_commands.xml
+- docs/mobert-status-formatting.md
+- docs/mow-area-status.md
 - docs/mqtt-topics.md
-- docs/waha-session-auto-repair.md

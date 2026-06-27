@@ -953,6 +953,12 @@ OPENMOWER_STATE: Dict[str, Any] = {
     "gps_state_time": "",
     "gps_position": {},
     "gps_position_time": "",
+    # MowArea cache stores the latest area queue / path plan payload.  The
+    # compact status uses it to translate checkpoint_area_id to a human-readable
+    # area name and to calculate the displayed mowing progress from path points.
+    "mow_area": {},
+    "mow_area_previous": {},
+    "mow_area_time": "",
     "wifi_percent": "unbekannt",
     "wifi_time": "",
     "last_mqtt_topic": "",
@@ -984,11 +990,23 @@ DEFAULT_STATUS_CACHE_TOPICS = [
     # published here when the OpenMower MQTT interface provides them.
     "gps/position/json",
     "gps_position/json",
+    # MowArea / Web-App style area plan sources.  If an installation publishes
+    # the area queue elsewhere, add it through OPENMOWER_STATUS_CACHE_TOPICS.
+    "area_queue/json",
+    "mow_area/json",
+    "mow_area/status/json",
+    "mowing_area/json",
+    "mowing/area_queue/json",
     "sensors/om_system_wifi_signal_percent/data",
     "openmower/robot_state/json",
     "openmower/gps_state/json",
     "openmower/gps/position/json",
     "openmower/gps_position/json",
+    "openmower/area_queue/json",
+    "openmower/mow_area/json",
+    "openmower/mow_area/status/json",
+    "openmower/mowing_area/json",
+    "openmower/mowing/area_queue/json",
     "openmower/sensors/om_system_wifi_signal_percent/data",
 ]
 STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
@@ -2740,6 +2758,8 @@ def append_status_setting_text() -> str:
 
 
 def should_append_status_to_confirmation(context: Dict[str, Any], message: str) -> bool:
+    if as_bool(context.get("no_append_status", False)):
+        return False
     if not append_status_after_confirmation_enabled():
         return False
     if not str(context.get("command_id") or ""):
@@ -2749,10 +2769,10 @@ def should_append_status_to_confirmation(context: Dict[str, Any], message: str) 
     command_id = str(context.get("command_id") or "")
     processing_mode = str(context.get("processing.mode") or "")
     excluded_commands = {
-        "help", "status", "groups", "target", "gps_details", "gps_status_details", "gps_details_alias",
+        "help", "status", "mow_area", "groups", "target", "gps_details", "gps_status_details", "gps_details_alias",
         "status_push_info", "append_status_info",
     }
-    if command_id in excluded_commands or processing_mode in {"local_status", "local_gps", "local_reply", "local_groups", "local_default_group"}:
+    if command_id in excluded_commands or processing_mode in {"local_status", "local_mow_area", "local_gps", "local_reply", "local_groups", "local_default_group"}:
         return False
     if "*Mobert Status*" in message:
         return False
@@ -2776,26 +2796,145 @@ def battery_text(robot_state: Dict[str, Any]) -> str:
     return battery
 
 
+def mow_area_dict() -> Dict[str, Any]:
+    state = OPENMOWER_STATE.get("mow_area") or {}
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def robot_active_area_id(robot_state: Dict[str, Any]) -> str:
+    """Return the area currently being worked on.
+
+    OpenMower's live state uses checkpoint_area_id as the active mowing area.
+    current_area_id can be empty while the area is still in progress, therefore
+    checkpoint_area_id is preferred for Status and MowArea.
+    """
+    for key in ("checkpoint_area_id", "current_area_id", "area_id"):
+        value = str(robot_state.get(key) or "").strip()
+        if value:
+            return value
+    area_data = mow_area_dict()
+    for item in area_data.get("area_queue") or []:
+        if isinstance(item, dict) and str(item.get("status") or "").strip().lower() == "in_progress":
+            return str(item.get("area_id") or "").strip()
+    return ""
+
+
+def find_mow_area_queue_item(area_id: str) -> Dict[str, Any]:
+    area_data = mow_area_dict()
+    queue = area_data.get("area_queue") if isinstance(area_data.get("area_queue"), list) else []
+    if area_id:
+        for item in queue:
+            if isinstance(item, dict) and str(item.get("area_id") or "") == area_id:
+                return item
+    for item in queue:
+        if isinstance(item, dict) and str(item.get("status") or "").strip().lower() == "in_progress":
+            return item
+    return {}
+
+
+def mow_area_plan(area_id: str) -> Dict[str, Any]:
+    area_data = mow_area_dict()
+    areas = area_data.get("areas") if isinstance(area_data.get("areas"), dict) else {}
+    plan = areas.get(area_id) if area_id else None
+    return dict(plan) if isinstance(plan, dict) else {}
+
+
+def mow_area_total_points(area_id: str) -> int:
+    plan = mow_area_plan(area_id)
+    total = 0
+    for path in plan.get("paths") or []:
+        if not isinstance(path, dict):
+            continue
+        points = path.get("points")
+        if isinstance(points, list):
+            total += len(points)
+    return total
+
+
+def format_mow_area_progress(value: Optional[float]) -> str:
+    if value is None:
+        return "nicht verfügbar"
+    value = max(0.0, min(100.0, float(value)))
+    return f"{value:.1f} %"
+
+
+def mow_area_progress_percent(robot_state: Dict[str, Any], area_id: str) -> Optional[float]:
+    """Calculate mowing progress from path index and cached area path points.
+
+    current_action_progress often remains 0.0 although the Web-App already
+    shows progress.  Therefore the controller first calculates progress as
+    current_path_index / total planned points of the active area.
+    """
+    path_index = parse_float_like(robot_state.get("current_path_index"))
+    total_points = mow_area_total_points(area_id)
+    if path_index is not None and path_index >= 0 and total_points > 0:
+        return max(0.0, min(100.0, (path_index / total_points) * 100.0))
+
+    # Fallback only when OpenMower publishes a plausible non-zero progress.
+    # This prevents the misleading "00%" status when current_action_progress
+    # is simply not populated by the source.
+    raw_progress = parse_float_like(robot_state.get("current_action_progress"))
+    if raw_progress is None or raw_progress <= 0:
+        return None
+    if 0 < raw_progress <= 1:
+        raw_progress *= 100
+    return max(0.0, min(100.0, raw_progress))
+
+
+def current_mow_area_values(robot_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    robot_state = dict(robot_state or OPENMOWER_STATE.get("robot_state") or {})
+    area_id = robot_active_area_id(robot_state)
+    queue_item = find_mow_area_queue_item(area_id)
+    if not area_id:
+        area_id = str(queue_item.get("area_id") or "").strip()
+    area_number = str(robot_state.get("current_area") or "").strip()
+    fallback_name = f"Fläche {area_number}" if area_number and area_number not in {"-1", "0"} else area_id
+    name = str(queue_item.get("name") or fallback_name or "keine aktive Fläche").strip()
+    order = queue_item.get("mowing_order")
+    progress = mow_area_progress_percent(robot_state, area_id) if area_id else None
+    return {
+        "area_id": area_id,
+        "name": name,
+        "mowing_order": order,
+        "status": str(queue_item.get("status") or "").strip(),
+        "progress_percent": progress,
+        "progress_text": format_mow_area_progress(progress),
+        "current_path": robot_state.get("current_path"),
+        "current_path_index": robot_state.get("current_path_index"),
+        "total_points": mow_area_total_points(area_id) if area_id else 0,
+    }
+
+
+def bot_mow_area_text() -> str:
+    wait_for_fresh_openmower_status()
+    values = current_mow_area_values()
+    return "\n".join([
+        f"Fläche: {values['name']}",
+        f"Flächenreihenfolge: {values['mowing_order'] if values['mowing_order'] not in (None, '') else 'unbekannt'}",
+        f"Bearbeitung: {values['progress_text']}",
+        f"Pfad: {values['current_path'] if values['current_path'] not in (None, '') else 'unbekannt'}",
+        f"Pfadindex: {values['current_path_index'] if values['current_path_index'] not in (None, '') else 'unbekannt'}",
+    ])
+
+
+def bot_status_area_lines(robot_state: Dict[str, Any]) -> List[str]:
+    values = current_mow_area_values(robot_state)
+    if not values.get("area_id") and values["name"] == "keine aktive Fläche":
+        return ["*Fläche:* keine aktive Fläche", "*Bearbeitung:* nicht aktiv"]
+    return [f"*Fläche:* {values['name']}", f"*Bearbeitung:* {values['progress_text']}"]
+
+
 def robot_has_active_area(robot_state: Dict[str, Any]) -> bool:
     area_number = str(robot_state.get("current_area") or "").strip()
-    area_id = str(robot_state.get("current_area_id") or "").strip()
+    area_id = robot_active_area_id(robot_state)
     return bool((area_number and area_number not in {"-1", "0"}) or area_id)
 
 
 def current_area_text(robot_state: Dict[str, Any], include_progress: bool = True) -> str:
-    area_number = str(robot_state.get("current_area") or "").strip()
-    area_id = str(robot_state.get("current_area_id") or "").strip()
-    if area_number and area_number not in {"-1", "0"}:
-        area = f"Fläche {area_number}"
-    elif area_id:
-        area = f"Fläche {area_id}"
-    else:
-        return "keine aktive Fläche"
-
-    if include_progress and str(robot_state.get("current_state") or "").upper() == "MOWING":
-        progress = format_progress_percent(robot_state.get("current_action_progress"))
-        if progress:
-            return f"{area} ({progress})"
+    values = current_mow_area_values(robot_state)
+    area = str(values.get("name") or "keine aktive Fläche")
+    if include_progress and values.get("progress_percent") is not None:
+        return f"{area} ({values['progress_text']})"
     return area
 
 
@@ -2830,7 +2969,7 @@ def bot_status_text() -> str:
         "",
         f"*Zeit:* {now_local_text()}",
         f"*Status:* {state_name}",
-        f"*Fläche:* {current_area_text(robot_state)}",
+        *bot_status_area_lines(robot_state),
         f"*Akku:* {battery_text(robot_state)}",
         f"*Automatik:* {automow_text(robot_state)}",
         f"*WLAN:* {format_wifi_percent(wifi_value)}",
@@ -2994,8 +3133,13 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
         OPENMOWER_STATE["last_mqtt_payload"] = payload
         OPENMOWER_STATE["last_mqtt_time"] = now_iso()
         changed = True
+        root = unwrap_data_root(parsed)
+        if isinstance(root, dict) and (isinstance(root.get("area_queue"), list) or isinstance(root.get("areas"), dict)):
+            OPENMOWER_STATE["mow_area_previous"] = dict(OPENMOWER_STATE.get("mow_area") or {})
+            OPENMOWER_STATE["mow_area"] = root
+            OPENMOWER_STATE["mow_area_time"] = now_iso()
+            changed = True
         if mqtt_topic_matches_filter_or_suffix(source_topic, "robot_state/#"):
-            root = unwrap_data_root(parsed)
             if isinstance(root, dict):
                 OPENMOWER_STATE["robot_state_previous"] = dict(OPENMOWER_STATE.get("robot_state") or {})
                 OPENMOWER_STATE["robot_state"] = root
@@ -3221,9 +3365,15 @@ def execute_processing(client: mqtt.Client, flow: Dict[str, Any], step: Dict[str
             return True, str(context.get("processing.result", ""))
         if mode == "local_status":
             wait_for_fresh_openmower_status()
+            context["no_append_status"] = True
             context["processing.result"] = bot_status_text()
             return True, str(context.get("processing.result", ""))
+        if mode == "local_mow_area":
+            context["no_append_status"] = True
+            context["processing.result"] = bot_mow_area_text()
+            return True, str(context.get("processing.result", ""))
         if mode == "local_gps":
+            context["no_append_status"] = True
             context["processing.result"] = bot_gps_text()
             return True, str(context.get("processing.result", ""))
         if mode == "set_status_push":

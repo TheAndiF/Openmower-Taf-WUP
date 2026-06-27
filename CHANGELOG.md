@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.1 - 2026-06-27 - MowArea status progress
+
+- Added the `Mobert: MowArea` command with compact current area values: area name, mowing order, progress, path and path index.
+- Changed `Mobert: Status` to show only area name and calculated mowing progress instead of appending `00%` from `current_action_progress`.
+- Added Area-Queue cache support for payloads with `area_queue` and `areas` and default subscriptions for common MowArea topics.
+- Preferred `checkpoint_area_id` as the active mowing area.
+- Prevented append-status suffixes for status-like replies, including `Status`, GPS and `MowArea`, to avoid duplicated output.
+- Updated README and MQTT/status documentation.
+
 ## v0.6.0 - 2026-06-27 - WAHA session auto-repair
 
 - Added configurable WAHA session selection via `WAHA_SESSION`.

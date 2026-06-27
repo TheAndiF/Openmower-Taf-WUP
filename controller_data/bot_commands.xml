@@ -81,6 +81,25 @@
         </output>
       </step>
     </flow>
+    <flow id="mow_area">
+      <head>
+        <name>MowArea</name>
+        <description>Aktuelle Mähfläche mit Fortschritt anzeigen.</description>
+        <enabled>true</enabled>
+      </head>
+      <step id="start">
+        <input module="whatsapp_watchdog" type="command">
+          <expect>
+            <command>MowArea</command>
+          </expect>
+        </input>
+        <processing mode="local_mow_area" />
+        <output module="whatsapp_output" type="send">
+          <target>{replyTarget}</target>
+          <message>{processing.result}</message>
+        </output>
+      </step>
+    </flow>
     <flow id="gps_details">
       <head>
         <name>GPS details</name>

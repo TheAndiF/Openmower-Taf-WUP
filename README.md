@@ -26,6 +26,7 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Provide a WhatsApp GPS submenu with detailed `gps_state` diagnostics.
 - Send automatic status pushes every configurable X minutes.
 - Optionally append the current status below normal WhatsApp command confirmations.
+- Automatically start or restart the selected WAHA session when it is stopped, failed or stuck on `STARTING`.
 - Store runtime configuration persistently under `/data/config.json`.
 - Build multi-platform Docker images through GitHub Actions.
 
@@ -149,7 +150,7 @@ The submenu shows `available`, `quality`, `visible`, `used`, `rtk_state`, `gps_d
 
 ### GPS position placeholders
 
-The package does not convert OpenMower local map `pose.x/y` into Google Maps coordinates.  Until the later MQTT interface exposes real WGS84 `latitude`/`longitude`, the status uses the configured placeholder from `/data/config.json`:
+The package does not convert OpenMower local map `pose.x/y` into Google Maps coordinates.  If `robot_state/json` contains `world_pose.valid=true`, `world_pose.coordinate_system=WGS84`, `world_pose.latitude` and `world_pose.longitude`, those real world coordinates are used for the status and Google Maps link.  If no real WGS84 coordinates are available, the status uses the configured placeholder from `/data/config.json`:
 
 ```json
 "gps": {
@@ -163,7 +164,7 @@ The package does not convert OpenMower local map `pose.x/y` into Google Maps coo
 }
 ```
 
-When real coordinates become available, publish them on one of the prepared cache topics, for example `gps/position/json` or `gps_position/json`, using fields such as `latitude` and `longitude`.  The status will then show the numeric position and a real Google Maps link automatically.
+When real coordinates become available, prefer `world_pose.latitude` and `world_pose.longitude` with `coordinate_system=WGS84`.  The prepared cache topics `gps/position/json` and `gps_position/json` are still accepted for future interfaces that publish direct `latitude`/`longitude` fields.
 
 ### Automatic status push
 
@@ -241,7 +242,13 @@ messenger/
 │   │   ├── ready
 │   │   ├── can_send
 │   │   ├── can_read_groups
-│   │   └── last_error
+│   │   ├── last_error
+│   │   └── repair/
+│   │       ├── json
+│   │       ├── enabled
+│   │       ├── action
+│   │       ├── reason
+│   │       └── error
 │   │
 │   ├── groups/
 │   │   ├── json
@@ -333,6 +340,25 @@ messenger/
         └── json
 ```
 
+## WAHA session self-healing
+
+The controller checks the configured WAHA session before sending and in a background watchdog.  It can call WAHA `/start` when the session is `STOPPED`, and `/restart` when the session is `FAILED`, `CRASHED` or stuck on `STARTING` longer than the configured timeout.
+
+Important limits prevent restart loops:
+
+```env
+WAHA_AUTO_REPAIR_SESSION=true
+WAHA_STARTING_TIMEOUT_SECONDS=90
+WAHA_REPAIR_COOLDOWN_SECONDS=300
+WAHA_MAX_RESTARTS_PER_HOUR=3
+WAHA_SEND_READY_WAIT_SECONDS=30
+WAHA_WATCHDOG_SECONDS=60
+```
+
+The repair status is retained under `messenger/waha/session/repair/#`.  If the state is `SCAN_QR_CODE`, the controller reports that manual WAHA pairing is required; it does not loop restarts.
+
+See also `docs/waha-session-auto-repair.md`.
+
 ## Deployment description in MQTT
 
 The controller publishes a retained, non-secret description under:
@@ -371,6 +397,13 @@ Refresh the WAHA group list:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/waha/groups/set/renew/json -m '{}'
+```
+
+Manually start or restart the configured WAHA session through the controller:
+
+```bash
+mosquitto_pub -h Mosquitto -t messenger/waha/action -m 'messenger:waha/session/start'
+mosquitto_pub -h Mosquitto -t messenger/waha/action -m 'messenger:waha/session/restart'
 ```
 
 Set the default WhatsApp target group:

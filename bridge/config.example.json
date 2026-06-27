@@ -1,7 +1,14 @@
 {
   "waha": {
     "enabled": true,
-    "session": ""
+    "session": "",
+    "auto_repair_session": true,
+    "start_stopped_session": true,
+    "starting_timeout_seconds": 90,
+    "repair_cooldown_seconds": 300,
+    "max_restarts_per_hour": 3,
+    "send_ready_wait_seconds": 30,
+    "watchdog_seconds": 60
   },
   "default_group": "",
   "forward_topics": [],

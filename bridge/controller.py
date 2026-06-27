@@ -31,6 +31,29 @@ import requests
 
 
 # ---------------------------------------------------------------------------
+# Environment parsing helpers
+# ---------------------------------------------------------------------------
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled", "ja", "aktiv"}
+
+
+def env_int(name: str, default: int, minimum: Optional[int] = None, maximum: Optional[int] = None) -> int:
+    try:
+        value = int(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Environment configuration
 # ---------------------------------------------------------------------------
 
@@ -40,6 +63,24 @@ MQTT_BASE_TOPIC = os.getenv("MQTT_BASE_TOPIC", "messenger").strip("/")
 
 WAHA_URL = os.getenv("WAHA_URL", "http://waha:3000").rstrip("/")
 WAHA_API_KEY = os.getenv("WAHA_API_KEY", "")
+# Preferred WAHA session for sending/receiving.  Empty means: use the session
+# configured in bot_commands.xml; "default" is intentionally treated as
+# "not configured" for compatibility with older XML templates.
+WAHA_SESSION = (
+    os.getenv("WAHA_SESSION")
+    or os.getenv("WHATSAPP_SESSION")
+    or os.getenv("WAHA_DEFAULT_SESSION")
+    or ""
+).strip()
+# Automatic self-healing for stuck WAHA sessions.  This only uses the WAHA API
+# inside the Docker network; it does not require Docker socket access.
+WAHA_AUTO_REPAIR_SESSION = env_bool("WAHA_AUTO_REPAIR_SESSION", True)
+WAHA_START_STOPPED_SESSION = env_bool("WAHA_START_STOPPED_SESSION", True)
+WAHA_STARTING_TIMEOUT_SECONDS = env_int("WAHA_STARTING_TIMEOUT_SECONDS", 90, minimum=10)
+WAHA_REPAIR_COOLDOWN_SECONDS = env_int("WAHA_REPAIR_COOLDOWN_SECONDS", 300, minimum=10)
+WAHA_MAX_RESTARTS_PER_HOUR = env_int("WAHA_MAX_RESTARTS_PER_HOUR", 3, minimum=0)
+WAHA_SEND_READY_WAIT_SECONDS = env_int("WAHA_SEND_READY_WAIT_SECONDS", 30, minimum=0)
+WAHA_WATCHDOG_SECONDS = env_int("WAHA_WATCHDOG_SECONDS", 60, minimum=30)
 PROVIDER_NAME = os.getenv("MESSENGER_PROVIDER", "waha").strip().lower() or "waha"
 PROTOCOL_NAME = os.getenv("MESSENGER_PROTOCOL", "whatsapp").strip().lower() or "whatsapp"
 
@@ -174,6 +215,14 @@ def default_config() -> Dict[str, Any]:
     return {
         "waha": {
             "enabled": True,
+            "session": WAHA_SESSION,
+            "auto_repair_session": WAHA_AUTO_REPAIR_SESSION,
+            "start_stopped_session": WAHA_START_STOPPED_SESSION,
+            "starting_timeout_seconds": WAHA_STARTING_TIMEOUT_SECONDS,
+            "repair_cooldown_seconds": WAHA_REPAIR_COOLDOWN_SECONDS,
+            "max_restarts_per_hour": WAHA_MAX_RESTARTS_PER_HOUR,
+            "send_ready_wait_seconds": WAHA_SEND_READY_WAIT_SECONDS,
+            "watchdog_seconds": WAHA_WATCHDOG_SECONDS,
         },
         "default_group": "",
         "forward_topics": [],
@@ -235,6 +284,20 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     normalized["templates"] = dict(normalized.get("templates") or {})
     waha = normalized.setdefault("waha", {})
     waha["enabled"] = as_bool(waha.get("enabled", True))
+    waha["session"] = str(waha.get("session", WAHA_SESSION) or WAHA_SESSION or "").strip()
+    waha["auto_repair_session"] = as_bool(waha.get("auto_repair_session", WAHA_AUTO_REPAIR_SESSION))
+    waha["start_stopped_session"] = as_bool(waha.get("start_stopped_session", WAHA_START_STOPPED_SESSION))
+    for key, default_value, minimum in (
+        ("starting_timeout_seconds", WAHA_STARTING_TIMEOUT_SECONDS, 10),
+        ("repair_cooldown_seconds", WAHA_REPAIR_COOLDOWN_SECONDS, 10),
+        ("max_restarts_per_hour", WAHA_MAX_RESTARTS_PER_HOUR, 0),
+        ("send_ready_wait_seconds", WAHA_SEND_READY_WAIT_SECONDS, 0),
+        ("watchdog_seconds", WAHA_WATCHDOG_SECONDS, 30),
+    ):
+        try:
+            waha[key] = max(minimum, int(waha.get(key, default_value)))
+        except Exception:
+            waha[key] = default_value
     history = normalized.setdefault("messages", {}).setdefault("history", {})
     history["enabled"] = as_bool(history.get("enabled", True))
     try:
@@ -327,6 +390,253 @@ def waha_post(path: str, payload: Dict[str, Any]) -> Any:
     if response.status_code >= 400:
         raise RuntimeError(f"WAHA HTTP {response.status_code}: {body}")
     return body
+
+
+# ---------------------------------------------------------------------------
+# WAHA session self-healing
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WahaRepairResult:
+    ready: bool
+    status: str
+    action: str
+    reason: str
+    session: str = ""
+    error: str = ""
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            "ready": self.ready,
+            "status": self.status,
+            "action": self.action,
+            "reason": self.reason,
+            "session": self.session,
+            "error": self.error,
+            "time": now_iso(),
+        }
+
+
+WAHA_REPAIR_LOCK = threading.Lock()
+WAHA_REPAIR_ATTEMPTS: Deque[float] = deque()
+WAHA_REPAIR_STATE: Dict[str, Any] = {
+    "enabled": WAHA_AUTO_REPAIR_SESSION,
+    "last_session": "",
+    "last_status": "",
+    "last_status_since_monotonic": time.monotonic(),
+    "last_action": "none",
+    "last_action_time": "",
+    "last_reason": "",
+    "last_error": "",
+    "restart_attempts_last_hour": 0,
+}
+
+
+def waha_repair_config() -> Dict[str, Any]:
+    cfg = CONFIG.get("waha", {}) or {}
+    return {
+        "enabled": as_bool(cfg.get("auto_repair_session", WAHA_AUTO_REPAIR_SESSION)),
+        "start_stopped_session": as_bool(cfg.get("start_stopped_session", WAHA_START_STOPPED_SESSION)),
+        "starting_timeout_seconds": max(10, int(cfg.get("starting_timeout_seconds", WAHA_STARTING_TIMEOUT_SECONDS) or WAHA_STARTING_TIMEOUT_SECONDS)),
+        "repair_cooldown_seconds": max(10, int(cfg.get("repair_cooldown_seconds", WAHA_REPAIR_COOLDOWN_SECONDS) or WAHA_REPAIR_COOLDOWN_SECONDS)),
+        "max_restarts_per_hour": max(0, int(cfg.get("max_restarts_per_hour", WAHA_MAX_RESTARTS_PER_HOUR) or WAHA_MAX_RESTARTS_PER_HOUR)),
+        "send_ready_wait_seconds": max(0, int(cfg.get("send_ready_wait_seconds", WAHA_SEND_READY_WAIT_SECONDS) or WAHA_SEND_READY_WAIT_SECONDS)),
+        "watchdog_seconds": max(30, int(cfg.get("watchdog_seconds", WAHA_WATCHDOG_SECONDS) or WAHA_WATCHDOG_SECONDS)),
+    }
+
+
+def remember_waha_repair_result(result: WahaRepairResult) -> None:
+    with WAHA_REPAIR_LOCK:
+        WAHA_REPAIR_STATE["last_action"] = result.action
+        WAHA_REPAIR_STATE["last_action_time"] = now_iso()
+        WAHA_REPAIR_STATE["last_reason"] = result.reason
+        WAHA_REPAIR_STATE["last_error"] = result.error
+        WAHA_REPAIR_STATE["last_session"] = result.session
+        WAHA_REPAIR_STATE["last_status"] = result.status
+        WAHA_REPAIR_STATE["enabled"] = waha_repair_config()["enabled"]
+        cleanup_waha_repair_attempts_locked()
+        WAHA_REPAIR_STATE["restart_attempts_last_hour"] = len(WAHA_REPAIR_ATTEMPTS)
+
+
+def note_waha_status_seen(session_name: str, status: str) -> float:
+    now = time.monotonic()
+    with WAHA_REPAIR_LOCK:
+        if WAHA_REPAIR_STATE.get("last_session") != session_name or WAHA_REPAIR_STATE.get("last_status") != status:
+            WAHA_REPAIR_STATE["last_session"] = session_name
+            WAHA_REPAIR_STATE["last_status"] = status
+            WAHA_REPAIR_STATE["last_status_since_monotonic"] = now
+        return max(0.0, now - float(WAHA_REPAIR_STATE.get("last_status_since_monotonic", now)))
+
+
+def cleanup_waha_repair_attempts_locked() -> None:
+    cutoff = time.monotonic() - 3600
+    while WAHA_REPAIR_ATTEMPTS and WAHA_REPAIR_ATTEMPTS[0] < cutoff:
+        WAHA_REPAIR_ATTEMPTS.popleft()
+
+
+def waha_repair_allowed() -> Tuple[bool, str]:
+    cfg = waha_repair_config()
+    now = time.monotonic()
+    with WAHA_REPAIR_LOCK:
+        cleanup_waha_repair_attempts_locked()
+        max_per_hour = int(cfg["max_restarts_per_hour"])
+        if max_per_hour == 0:
+            return False, "Automatische WAHA-Restarts sind per max_restarts_per_hour=0 deaktiviert"
+        if len(WAHA_REPAIR_ATTEMPTS) >= max_per_hour:
+            return False, f"Maximale WAHA-Restarts pro Stunde erreicht ({max_per_hour})"
+        last_attempt = WAHA_REPAIR_ATTEMPTS[-1] if WAHA_REPAIR_ATTEMPTS else 0.0
+        remaining = int(cfg["repair_cooldown_seconds"] - (now - last_attempt))
+        if remaining > 0:
+            return False, f"WAHA-Restart-Cooldown aktiv: noch {remaining} Sekunden"
+        WAHA_REPAIR_ATTEMPTS.append(now)
+        WAHA_REPAIR_STATE["restart_attempts_last_hour"] = len(WAHA_REPAIR_ATTEMPTS)
+        return True, ""
+
+
+def waha_session_action(session_name: str, action: str) -> Any:
+    # WAHA accepts an empty JSON body here.  Keeping this inside the controller
+    # avoids shell/Docker access and works over the already configured WAHA API.
+    return waha_post(f"/api/sessions/{session_name}/{action}", {})
+
+
+def maybe_repair_waha_session(session: Dict[str, Any]) -> WahaRepairResult:
+    cfg = waha_repair_config()
+    session_name = str(session.get("name") or effective_whatsapp_session() or "").strip()
+    status = str(session.get("status") or "UNKNOWN").upper()
+    ready = bool(session.get("ready", False)) or status == "WORKING"
+    status_age = note_waha_status_seen(session_name, status)
+
+    if ready:
+        result = WahaRepairResult(True, status, "none", "WAHA-Session ist bereit", session_name)
+        remember_waha_repair_result(result)
+        return result
+
+    if not cfg["enabled"]:
+        result = WahaRepairResult(False, status, "none", "Automatische WAHA-Session-Reparatur ist deaktiviert", session_name)
+        remember_waha_repair_result(result)
+        return result
+
+    if not session_name:
+        result = WahaRepairResult(False, status, "config_error", "Keine WAHA-Session konfiguriert oder gefunden", session_name)
+        remember_waha_repair_result(result)
+        return result
+
+    if status == "NOT_FOUND":
+        result = WahaRepairResult(False, status, "config_error", f"WAHA-Session nicht gefunden: {session_name}", session_name)
+        remember_waha_repair_result(result)
+        return result
+
+    if status in {"SCAN_QR_CODE", "QR"}:
+        result = WahaRepairResult(False, status, "manual_required", "WhatsApp muss in WAHA per QR-Code neu gekoppelt werden", session_name)
+        remember_waha_repair_result(result)
+        return result
+
+    if status == "STOPPED" and cfg["start_stopped_session"]:
+        allowed, reason = waha_repair_allowed()
+        if not allowed:
+            result = WahaRepairResult(False, status, "start_blocked", reason, session_name)
+            remember_waha_repair_result(result)
+            return result
+        try:
+            waha_session_action(session_name, "start")
+            result = WahaRepairResult(False, status, "start", "WAHA-Session war STOPPED und wurde gestartet", session_name)
+        except Exception as exc:
+            result = WahaRepairResult(False, status, "start_failed", str(exc), session_name, str(exc))
+        remember_waha_repair_result(result)
+        return result
+
+    if status in {"FAILED", "CRASHED"}:
+        allowed, reason = waha_repair_allowed()
+        if not allowed:
+            result = WahaRepairResult(False, status, "restart_blocked", reason, session_name)
+            remember_waha_repair_result(result)
+            return result
+        try:
+            waha_session_action(session_name, "restart")
+            result = WahaRepairResult(False, status, "restart", f"WAHA-Session war {status} und wurde neu gestartet", session_name)
+        except Exception as exc:
+            result = WahaRepairResult(False, status, "restart_failed", str(exc), session_name, str(exc))
+        remember_waha_repair_result(result)
+        return result
+
+    if status in {"STARTING", "OPENING"}:
+        timeout = int(cfg["starting_timeout_seconds"])
+        if status_age < timeout:
+            result = WahaRepairResult(False, status, "wait", f"WAHA-Session startet seit {int(status_age)} Sekunden", session_name)
+            remember_waha_repair_result(result)
+            return result
+        allowed, reason = waha_repair_allowed()
+        if not allowed:
+            result = WahaRepairResult(False, status, "restart_blocked", reason, session_name)
+            remember_waha_repair_result(result)
+            return result
+        try:
+            waha_session_action(session_name, "restart")
+            # Reset age after a restart request so the next watchdog cycle waits
+            # before attempting another restart.
+            note_waha_status_seen(session_name, f"{status}:restart")
+            note_waha_status_seen(session_name, status)
+            result = WahaRepairResult(False, status, "restart", f"WAHA-Session hing laenger als {timeout} Sekunden auf {status} und wurde neu gestartet", session_name)
+        except Exception as exc:
+            result = WahaRepairResult(False, status, "restart_failed", str(exc), session_name, str(exc))
+        remember_waha_repair_result(result)
+        return result
+
+    result = WahaRepairResult(False, status, "none", f"WAHA-Session ist nicht bereit: {status}", session_name)
+    remember_waha_repair_result(result)
+    return result
+
+
+def wait_for_waha_ready(max_seconds: int) -> Tuple[Dict[str, Any], WahaRepairResult]:
+    deadline = time.monotonic() + max(0, max_seconds)
+    current = fetch_session()
+    result = maybe_repair_waha_session(current)
+    while max_seconds > 0 and not result.ready and time.monotonic() < deadline:
+        if result.status in {"SCAN_QR_CODE", "QR", "NOT_FOUND"} or result.action in {"config_error", "manual_required"}:
+            break
+        time.sleep(2)
+        current = fetch_session()
+        result = maybe_repair_waha_session(current)
+    return current, result
+
+
+def ensure_waha_ready_for_send(client: Optional[mqtt.Client] = None) -> None:
+    global SESSION
+    SESSION = fetch_session()
+    result = maybe_repair_waha_session(SESSION)
+    cfg = waha_repair_config()
+    if not result.ready and int(cfg["send_ready_wait_seconds"]) > 0:
+        SESSION, result = wait_for_waha_ready(int(cfg["send_ready_wait_seconds"]))
+    if client is not None:
+        publish_waha_repair_status(client)
+    if not result.ready:
+        raise RuntimeError(f"WAHA session not ready: status={result.status}, action={result.action}, reason={result.reason}")
+
+
+def make_waha_repair_payload() -> Dict[str, Any]:
+    cfg = waha_repair_config()
+    with WAHA_REPAIR_LOCK:
+        payload = dict(WAHA_REPAIR_STATE)
+    payload.pop("last_status_since_monotonic", None)
+    payload.update({
+        "enabled": cfg["enabled"],
+        "start_stopped_session": cfg["start_stopped_session"],
+        "starting_timeout_seconds": cfg["starting_timeout_seconds"],
+        "repair_cooldown_seconds": cfg["repair_cooldown_seconds"],
+        "max_restarts_per_hour": cfg["max_restarts_per_hour"],
+        "send_ready_wait_seconds": cfg["send_ready_wait_seconds"],
+        "watchdog_seconds": cfg["watchdog_seconds"],
+    })
+    return payload
+
+
+def publish_waha_repair_status(client: mqtt.Client) -> None:
+    repair = make_waha_repair_payload()
+    publish(client, topic("waha", "session", "repair", "json"), {"d": repair})
+    publish(client, topic("waha", "session", "repair", "enabled"), str(repair["enabled"]).lower())
+    publish(client, topic("waha", "session", "repair", "action"), repair.get("last_action", ""))
+    publish(client, topic("waha", "session", "repair", "reason"), repair.get("last_reason", ""))
+    publish(client, topic("waha", "session", "repair", "error"), repair.get("last_error", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +738,19 @@ def fetch_session() -> Dict[str, Any]:
             if name == preferred_name:
                 selected = session
                 break
+    if selected is None and preferred_name:
+        return {
+            "name": preferred_name,
+            "status": "NOT_FOUND",
+            "account": "",
+            "reachable": True,
+            "ready": False,
+            "can_send": False,
+            "can_read_groups": False,
+            "last_error": f"Configured WAHA session not found: {preferred_name}",
+            "assigned_worker": "",
+            "timestamps": {},
+        }
     if selected is None:
         for session in sessions:
             if str(session.get("status", "")).upper() == "WORKING":
@@ -445,6 +768,8 @@ def fetch_session() -> Dict[str, Any]:
             "can_send": False,
             "can_read_groups": False,
             "last_error": "",
+            "assigned_worker": "",
+            "timestamps": {},
         }
 
     me = selected.get("me") or selected.get("account") or ""
@@ -461,6 +786,8 @@ def fetch_session() -> Dict[str, Any]:
         "can_send": ready,
         "can_read_groups": ready,
         "last_error": "",
+        "assigned_worker": str(selected.get("assignedWorker") or selected.get("assigned_worker") or ""),
+        "timestamps": selected.get("timestamps") if isinstance(selected.get("timestamps"), dict) else {},
     }
 
 
@@ -1125,7 +1452,9 @@ def module_is_enabled(module_id: str) -> bool:
 def effective_whatsapp_session() -> str:
     configured = str(CONFIG.get("waha", {}).get("session", "") or "").strip()
     if configured:
-        return configured
+        return "" if configured == "default" else configured
+    if WAHA_SESSION:
+        return "" if WAHA_SESSION == "default" else WAHA_SESSION
     session_name = str(module_config("whatsapp_output").get("session", "") or module_config("whatsapp_watchdog").get("session", "") or module_config("whatsapp").get("session", "") or "").strip()
     return "" if session_name == "default" else session_name
 
@@ -1269,6 +1598,8 @@ def session_payload() -> Dict[str, Any]:
             "can_send": bool(SESSION.get("can_send", False)),
             "can_read_groups": bool(SESSION.get("can_read_groups", False)),
             "last_error": SESSION.get("last_error", "") or LAST_STATUS_ERROR,
+            "assigned_worker": SESSION.get("assigned_worker", ""),
+            "repair": make_waha_repair_payload(),
             "last_update": now_iso(),
         }
     }
@@ -1426,6 +1757,8 @@ def actions_payload() -> Dict[str, Any]:
             {"action_id": "messenger:waha/enable", "enabled": 0 if waha_enabled() else 1, "label": "WAHA aktivieren"},
             {"action_id": "messenger:waha/disable", "enabled": 1 if waha_enabled() else 0, "label": "WAHA deaktivieren"},
             {"action_id": "messenger:waha/groups/refresh", "enabled": 1 if waha_enabled() else 0, "label": "WAHA-Gruppen aktualisieren"},
+            {"action_id": "messenger:waha/session/start", "enabled": 1 if waha_enabled() else 0, "label": "WAHA-Session starten"},
+            {"action_id": "messenger:waha/session/restart", "enabled": 1 if waha_enabled() else 0, "label": "WAHA-Session neu starten"},
             {"action_id": "messenger:bot/commands/reload", "enabled": 1, "label": "Bot-Befehlsdatei neu laden"},
         ]
     }
@@ -1546,6 +1879,15 @@ def publish_state(client: mqtt.Client, refresh_groups: bool = True) -> None:
     global GROUPS_BY_KEY, SESSION, LAST_STATUS_ERROR
     try:
         SESSION = fetch_session()
+        if waha_enabled():
+            repair_result = maybe_repair_waha_session(SESSION)
+            # If the watchdog just started/restarted a session, fetch once more so
+            # the retained MQTT status reflects the latest WAHA state.
+            if repair_result.action in {"start", "restart"}:
+                try:
+                    SESSION = fetch_session()
+                except Exception:
+                    pass
         if not waha_enabled():
             GROUPS_BY_KEY = {}
             rebuild_group_index()
@@ -1591,6 +1933,7 @@ def publish_state(client: mqtt.Client, refresh_groups: bool = True) -> None:
     publish(client, topic("waha", "session", "can_send"), str(session["can_send"]).lower())
     publish(client, topic("waha", "session", "can_read_groups"), str(session["can_read_groups"]).lower())
     publish(client, topic("waha", "session", "last_error"), session["last_error"])
+    publish_waha_repair_status(client)
 
     groups = groups_payload()["d"]
     publish(client, topic("waha", "groups", "json"), {"d": groups})
@@ -1666,6 +2009,7 @@ def resolve_message_target(target: Any) -> Tuple[str, Optional[Dict[str, str]]]:
 def send_text(client: mqtt.Client, target: Any, text: str, request_id: str = "") -> Dict[str, Any]:
     if not waha_enabled():
         raise RuntimeError("WAHA provider is disabled")
+    ensure_waha_ready_for_send(client)
     if not SESSION or not SESSION.get("name"):
         raise RuntimeError("No active WAHA session available")
     chat_id, group = resolve_message_target(target)
@@ -1799,8 +2143,25 @@ def apply_waha_settings(data: Dict[str, Any]) -> Dict[str, Any]:
             raise RuntimeError("session must not be empty")
         waha["session"] = session_name
         accepted["session"] = session_name
+    for key in ("auto_repair_session", "start_stopped_session"):
+        if key in data:
+            waha[key] = as_bool(data.get(key))
+            accepted[key] = waha[key]
+    for key, minimum in (
+        ("starting_timeout_seconds", 10),
+        ("repair_cooldown_seconds", 10),
+        ("max_restarts_per_hour", 0),
+        ("send_ready_wait_seconds", 0),
+        ("watchdog_seconds", 30),
+    ):
+        if key in data:
+            try:
+                waha[key] = max(minimum, int(data.get(key)))
+            except Exception:
+                raise RuntimeError(f"{key} must be an integer")
+            accepted[key] = waha[key]
     if not accepted:
-        raise RuntimeError("waha set payload requires enabled or session")
+        raise RuntimeError("waha set payload requires enabled, session or repair settings")
     return accepted
 
 
@@ -1992,6 +2353,18 @@ def handle_action(client: mqtt.Client, payload: str) -> None:
         handle_waha_set(client, '{"enabled": false}', "session")
     elif action_id == "messenger:waha/groups/refresh":
         handle_groups_renew(client)
+    elif action_id == "messenger:waha/session/start":
+        session_name = str(SESSION.get("name") or effective_whatsapp_session() or "").strip()
+        if not session_name:
+            raise RuntimeError("No WAHA session configured for start action")
+        waha_session_action(session_name, "start")
+        publish_state(client, refresh_groups=False)
+    elif action_id == "messenger:waha/session/restart":
+        session_name = str(SESSION.get("name") or effective_whatsapp_session() or "").strip()
+        if not session_name:
+            raise RuntimeError("No WAHA session configured for restart action")
+        waha_session_action(session_name, "restart")
+        publish_state(client, refresh_groups=False)
     elif action_id == "messenger:bot/commands/reload":
         handle_commands_renew(client)
     else:
@@ -2225,12 +2598,25 @@ def first_present_value(data: Dict[str, Any], *paths: str) -> Any:
 
 
 def parse_coordinate_pair(*sources: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
-    """Find future WGS84 latitude/longitude values without using local map x/y."""
+    """Find WGS84 latitude/longitude values without using local map pose.x/y.
+
+    OpenMower robot_state/json can contain both a local map pose and a
+    world_pose.  Only world_pose.latitude/longitude are suitable for Google
+    Maps, and only when world_pose.valid=true and coordinate_system=WGS84.
+    """
     lat_keys = ("latitude", "lat", "gps.latitude", "gps.lat", "position.latitude", "position.lat", "wgs84.latitude", "wgs84.lat")
     lon_keys = ("longitude", "lon", "lng", "gps.longitude", "gps.lon", "gps.lng", "position.longitude", "position.lon", "position.lng", "wgs84.longitude", "wgs84.lon")
     for source in sources:
         if not isinstance(source, dict):
             continue
+        world_pose = source.get("world_pose") if isinstance(source.get("world_pose"), dict) else None
+        if world_pose:
+            valid = parse_bool_like(world_pose.get("valid"))
+            coordinate_system = str(world_pose.get("coordinate_system") or "").strip().upper()
+            lat = parse_float_like(world_pose.get("latitude"))
+            lon = parse_float_like(world_pose.get("longitude"))
+            if valid is True and coordinate_system == "WGS84" and lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
+                return lat, lon
         lat = parse_float_like(first_present_value(source, *lat_keys))
         lon = parse_float_like(first_present_value(source, *lon_keys))
         if lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
@@ -3315,6 +3701,27 @@ def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> Non
         publish_error(client, mqtt_topic, exc)
 
 
+def waha_watchdog_loop(client: mqtt.Client) -> None:
+    while RUNNING:
+        cfg = waha_repair_config()
+        time.sleep(int(cfg["watchdog_seconds"]))
+        if not waha_enabled():
+            continue
+        try:
+            global SESSION
+            SESSION = fetch_session()
+            maybe_repair_waha_session(SESSION)
+            publish_waha_repair_status(client)
+        except Exception as exc:
+            with WAHA_REPAIR_LOCK:
+                WAHA_REPAIR_STATE["last_action"] = "watchdog_error"
+                WAHA_REPAIR_STATE["last_action_time"] = now_iso()
+                WAHA_REPAIR_STATE["last_error"] = str(exc)
+                WAHA_REPAIR_STATE["last_reason"] = "WAHA-Watchdog konnte die Session nicht pruefen"
+            publish_waha_repair_status(client)
+            log(f"WAHA watchdog error: {exc}")
+
+
 def refresh_loop(client: mqtt.Client) -> None:
     while RUNNING:
         time.sleep(REFRESH_SECONDS)
@@ -3384,6 +3791,8 @@ def main() -> None:
     client.connect(MQTT_HOST, MQTT_PORT, 60)
     thread = threading.Thread(target=refresh_loop, args=(client,), daemon=True)
     thread.start()
+    waha_watchdog_thread = threading.Thread(target=waha_watchdog_loop, args=(client,), daemon=True)
+    waha_watchdog_thread.start()
     status_thread = threading.Thread(target=status_push_loop, args=(client,), daemon=True)
     status_thread.start()
     client.loop_forever()

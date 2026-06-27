@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6.0 - 2026-06-27 - WAHA session auto-repair
+
+- Added configurable WAHA session selection via `WAHA_SESSION`.
+- Added automatic WAHA session repair: start `STOPPED` sessions and restart `FAILED`/`CRASHED` or long-running `STARTING` sessions.
+- Added watchdog and send-path readiness checks with cooldown and maximum restarts per hour.
+- Added retained MQTT diagnostics under `messenger/waha/session/repair/#`.
+- Added manual actions `messenger:waha/session/start` and `messenger:waha/session/restart`.
+- Added `WHATSAPP_START_SESSION=${WAHA_SESSION:-}` to the WAHA compose example so WAHA can start the configured session at API startup.
+- Updated GPS coordinate extraction to prefer valid `world_pose` WGS84 coordinates for Google Maps and never use local `pose.x/y`.
+- Added `docs/waha-session-auto-repair.md`.
+
 ## v0.5.0 - 2026-06-26 - WhatsApp status GPS automation
 
 - Extended `Mobert: Status` with AutoMow/Zeitplan information, suspension end time handling, compact GPS readiness and GPS position/map placeholders.

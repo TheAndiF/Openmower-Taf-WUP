@@ -1,20 +1,21 @@
-BL_Add Mobert GPS status automation
-Date: 2026-06-26
+BL_Add WAHA session auto repair
+Date: 2026-06-27
 Summary:
-- Extended Mobert status with AutoMow/Zeitplan information, GPS readiness and GPS position/map placeholders for the future MQTT GPS coordinate interface.
-- Added a GPS detail submenu, configurable automatic status push, and a WhatsApp switch for appending status after command confirmations.
-- Updated one-time notifications to cover UNDOCKING, DOCKING -> IDLE, Emergency, and GPS loss while mowing without adding a standalone DOCKING notification.
-- Documented the new commands, MQTT topics, placeholder handling and changed files.
+- Added configurable WAHA session selection with WAHA_SESSION.
+- Added automatic WAHA session self-healing: start STOPPED sessions and restart FAILED/CRASHED or stuck STARTING sessions.
+- Added watchdog and send-path readiness checks with cooldown, wait timeout and maximum restarts per hour.
+- Published retained diagnostics under messenger/waha/session/repair/# and added manual MQTT actions for session start/restart.
+- Added WHATSAPP_START_SESSION to the WAHA compose example so the configured session can start when WAHA starts.
+- Updated GPS status coordinate extraction to prefer valid world_pose WGS84 coordinates for Google Maps and never use local pose.x/y.
+- Documented the new environment variables, MQTT topics and operational checks.
 Changed files:
 - .env.example
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - bridge/controller.py
-- bridge/bot_commands.example.xml
 - bridge/config.example.json
-- controller_data/bot_commands.xml
+- compose.example.yaml
 - controller_data/config.json
 - docs/mqtt-topics.md
-- docs/status-cache-subscriptions.md
-- docs/whatsapp-status-gps-automation.md
+- docs/waha-session-auto-repair.md

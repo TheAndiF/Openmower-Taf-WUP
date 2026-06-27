@@ -45,7 +45,13 @@ messenger/
 │   │   ├── ready
 │   │   ├── can_send
 │   │   ├── can_read_groups
-│   │   └── last_error
+│   │   ├── last_error
+│   │   └── repair/
+│   │       ├── json
+│   │       ├── enabled
+│   │       ├── action
+│   │       ├── reason
+│   │       └── error
 │   │
 │   ├── groups/
 │   │   ├── json
@@ -233,7 +239,14 @@ messenger/waha/session/ready
 messenger/waha/session/can_send
 messenger/waha/session/can_read_groups
 messenger/waha/session/last_error
+messenger/waha/session/repair/json
+messenger/waha/session/repair/enabled
+messenger/waha/session/repair/action
+messenger/waha/session/repair/reason
+messenger/waha/session/repair/error
 ```
+
+The `repair/#` topics show whether the controller had to start or restart the configured WAHA session.
 
 ## Groups
 

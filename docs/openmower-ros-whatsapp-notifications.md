@@ -56,6 +56,6 @@ Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich mit `openmow
 
 ## v1.3 Hinweis: Statusformat und Hilfe
 
-`Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
+`Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
 `Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.

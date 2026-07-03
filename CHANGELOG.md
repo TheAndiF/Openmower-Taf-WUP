@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-03 - Status area progress and Auto Mow suspension
+
+- Added a dedicated `mowing_progress` cache for `map/mowing_progress/status/json` and related prefixed topics.
+- Changed Status and MowArea to prefer `current_area_id` from `robot_state/json` or mowing-progress payloads before falling back to `checkpoint_area_id`.
+- Changed mowing progress to prefer `areas[current_area_id].percent` from `map/mowing_progress/status/json`, with path-level and legacy fallbacks.
+- Kept area queue/plan data separate from progress data so progress-only payloads do not overwrite readable area names.
+- Updated the WhatsApp status line from `Automatik` to `Auto Mow` and display Auto Mow suspension until a date or as `ausgesetzt unendlich` for year 9999 values.
+- Added documentation for the new MowArea and Auto Mow status behavior.
+
+
 ## v0.6.1 - 2026-06-27 - MowArea status progress
 
 - Added the `Mobert: MowArea` command with compact current area values: area name, mowing order, progress, path and path index.

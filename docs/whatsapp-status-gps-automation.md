@@ -13,7 +13,7 @@ Die echten GPS-Koordinaten für Google Maps sind bewusst als Platzhalter umgeset
 
 `Mobert: Status` enthält jetzt zusätzlich:
 
-- Automatik-/Zeitplanstatus inklusive Ablaufzeit oder unbestimmter Deaktivierung
+- Auto-Mow-Status inklusive Ablaufzeit oder unendlicher Aussetzung
 - GPS-Fahrbereitschaft
 - GPS-Positionsplatzhalter oder später echte GPS-Position
 - Google-Maps-Link als Platzhalter oder später echter Link
@@ -35,19 +35,19 @@ Wenn GPS nicht fahrbereit ist, wird der Status bewusst kurz gehalten:
 
 Es wird keine Zeile `Karte: nicht verfügbar` ausgegeben.
 
-## Automatik-/Zeitplanstatus
+## Auto-Mow-Status
 
-Der Status verwendet `AutoMow` und `AutoMowSuspension` aus `robot_state/json`.
+Der Status verwendet `AutoMow` und `AutoMowSuspension` aus `robot_state/json`. Aliasnamen wie `auto_mow`, `automow`, `auto_mow_suspension` und `suspension_until` werden ebenfalls akzeptiert.
 
 Beispiele:
 
 ```text
-*Automatik:* aktiv
-*Automatik:* deaktiviert bis 26.06.2026 18:30
-*Automatik:* deaktiviert ohne Ablaufzeit
+*Auto Mow:* aktiviert
+*Auto Mow:* ausgesetzt bis 26.06.2026 18:30
+*Auto Mow:* ausgesetzt unendlich
 ```
 
-`AutoMowSuspension=0` bedeutet aktiv.  Ein ISO-Zeitwert wird als Ablaufzeit formatiert.  Ein sehr weit in der Zukunft liegender Wert wie `9999-12-31T23:59:59Z` wird als unbestimmte Deaktivierung behandelt.
+`AutoMowSuspension=0` bedeutet nicht ausgesetzt. Ein ISO-Zeitwert wird als Ablaufzeit formatiert. Ein sehr weit in der Zukunft liegender Wert wie `9999-12-31T23:59:59Z` wird nicht als konkretes Datum angezeigt, sondern als `ausgesetzt unendlich`.
 
 ## GPS-Untermenü
 

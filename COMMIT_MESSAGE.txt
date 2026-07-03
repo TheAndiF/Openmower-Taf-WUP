@@ -1,21 +1,21 @@
-BL_Add MowArea status progress
-Date: 2026-06-27
+BL_Update status area progress and automow
+Date: 2026-07-03
 Summary:
-- Added the MowArea command to return only the current mowing-area values.
-- Changed the normal Status reply to show only the active area name and calculated progress.
-- Calculated mowing progress from checkpoint_area_id, current_path_index and cached area path points instead of showing misleading 00% values from current_action_progress.
-- Cached Area-Queue payloads containing area_queue and areas and added default topic subscriptions for common MowArea sources.
-- Prevented append-status output for status-like commands so Status is not duplicated when append_status_to_confirmations is enabled.
-- Documented the new Status and MowArea behavior.
+- Added a dedicated mowing progress cache for map/mowing_progress/status/json and prefixed variants.
+- Changed Status and MowArea to prefer current_area_id before checkpoint_area_id and to read area progress from areas[current_area_id].percent.
+- Kept area queue/plan data separate from live progress data so readable area names are not overwritten.
+- Updated Auto Mow status output to show activated, disabled, suspended until a date, or suspended infinitely for year 9999 values.
+- Updated README and project documentation for the new MQTT fields and status behavior.
 Changed files:
 - .env.example
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
-- bridge/bot_commands.example.xml
 - bridge/controller.py
-- compose.example.yaml
-- controller_data/bot_commands.xml
+- docs/auto-mow-status.md
 - docs/mobert-status-formatting.md
 - docs/mow-area-status.md
 - docs/mqtt-topics.md
+- docs/openmower-ros-whatsapp-notifications.md
+- docs/status-cache-subscriptions.md
+- docs/whatsapp-status-gps-automation.md

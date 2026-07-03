@@ -49,7 +49,7 @@ Pfad: 1
 Pfadindex: 8261
 ```
 
-Die aktive Fläche wird über `checkpoint_area_id` aus `robot_state/json` bestimmt. Der lesbare Name und die Flächenreihenfolge kommen aus dem gecachten `area_queue`-Payload. Der Fortschritt wird bevorzugt aus `current_path_index` im Verhältnis zur Gesamtzahl der geplanten Punkte in `areas[area_id].paths[].points` berechnet. `current_action_progress` wird nur als Fallback genutzt, wenn es einen plausiblen Wert groesser als 0 liefert; dadurch wird kein irreführendes `00%` mehr angezeigt.
+Die aktive Fläche wird bevorzugt über `current_area_id` aus `robot_state/json` bestimmt. Danach folgt `current_area_id` aus `map/mowing_progress/status/json`; `checkpoint_area_id` ist nur noch Fallback für den letzten gespeicherten Checkpoint-Flächenbezug. Der lesbare Name und die Flächenreihenfolge kommen aus dem gecachten `area_queue`-Payload. Der Fortschritt wird bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent` gelesen. Falls dieser Wert fehlt, folgen `paths[].completed_percent`, der ältere `current_path_index / areas[area_id].paths[].points`-Fallback und zuletzt ein plausibler `current_action_progress` größer als 0.
 
 Bei keiner aktiven Flaeche bleibt die Ausgabe:
 

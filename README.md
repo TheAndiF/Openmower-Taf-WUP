@@ -22,7 +22,7 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings remain compatible and override the XML defaults at runtime.
 - Use the WhatsApp watchdog module from the XML for the command syntax `Mobert: Befehl`.
 - Send standard WhatsApp notifications from ROS MQTT for undocking, docking-to-idle charging start, emergency/error and GPS loss while mowing.
-- Format `Mobert: Status` for WhatsApp with readable local time, bold labels, area progress, Automatik/Zeitplan status, compact GPS readiness and GPS position placeholders.
+- Format `Mobert: Status` for WhatsApp with readable local time, bold labels, current mowing area, live mowing progress, Auto Mow suspension status, compact GPS readiness and GPS position placeholders.
 - Provide a WhatsApp GPS submenu with detailed `gps_state` diagnostics.
 - Send automatic status pushes every configurable X minutes.
 - Optionally append the current status below normal WhatsApp command confirmations.
@@ -134,7 +134,7 @@ The normal `Mobert: Status` reply intentionally stays shorter and only shows are
 *Fläche:* Plantage
 *Bearbeitung:* 72.0 %
 *Akku:* 68 %
-*Automatik:* aktiv
+*Auto Mow:* aktiviert
 *WLAN:* 64 %
 *GPS:* fahrbereit
 *Position:* Platzhalter: GPS-Koordinaten aus zukuenftiger MQTT-Schnittstelle
@@ -516,15 +516,17 @@ The help is rebuilt from the active XML whenever `messenger/bot/commands/set/xml
 
 ## Kompakter ROS-MQTT-Status in WhatsApp
 
-`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der interne Cache erkennt zusätzlich semantisch passende Topics mit anderem oder ohne Prefix, z. B. `robot_state/json`, damit die Statusausgabe nicht wegen eines reinen Topic-Prefixes auf `unbekannt` fällt. Die Ausgabe ist bewusst kurz gehalten:
+`Mobert: Status` nutzt die zuletzt empfangenen ROS-MQTT-Werte aus `robot_state/json`, `map/mowing_progress/status/json` und `sensors/om_system_wifi_signal_percent/data`. Der interne Cache erkennt zusätzlich semantisch passende Topics mit anderem oder ohne Prefix, z. B. `robot_state/json`, damit die Statusausgabe nicht wegen eines reinen Topic-Prefixes auf `unbekannt` fällt. Die Ausgabe ist bewusst kurz gehalten:
 
 ```text
 Mobert Status
 
 Zeit: 2026-06-25T18:55:00.503419+00:00
 Status: IDLE
-Fläche: keine aktive Fläche
+Fläche: Plantage
+Bearbeitung: 72.0 %
 Akku: 95 % (lädt)
+Auto Mow: aktiviert
 WLAN: 82 %
 MQTT: verbunden
 ```
@@ -551,11 +553,15 @@ Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cacheda
 
 The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered XML keeps these unprefixed topics for status and WLAN watchdog flows.
 
-`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these concrete status cache topics on startup:
+`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these concrete status cache topics on startup, including the Web-App style progress payload:
 
 - `robot_state/json`
+- `map/mowing_progress/status/json`
+- `mowing_progress/status/json`
 - `sensors/om_system_wifi_signal_percent/data`
 - `openmower/robot_state/json`
+- `openmower/map/mowing_progress/status/json`
+- `openmower/mowing_progress/status/json`
 - `openmower/sensors/om_system_wifi_signal_percent/data`
 
 The WLAN subscription intentionally targets only `/data`. OpenMower also publishes a binary sibling such as `sensors/om_system_wifi_signal_percent/bson`; wildcard subscriptions like `sensors/om_system_wifi_signal_percent/#` can cache binary data and produce unreadable WLAN output. The controller additionally validates WLAN payloads as numbers before updating the cache.

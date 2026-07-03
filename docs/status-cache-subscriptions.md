@@ -87,7 +87,7 @@ Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN als Zahl ausgeben,
 
 ## v1.3 Hinweis: Statusformat und Hilfe
 
-`Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
+`Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
 `Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
 
@@ -107,3 +107,42 @@ openmower/gps_position/json
 `gps_state/json` liefert die GPS-Fahrbereitschaft und Diagnosewerte für `Mobert: Status` und das GPS-Untermenü.  Die Positionstopics sind Platzhalter für eine spätere MQTT-Schnittstellenversion mit echten WGS84-Koordinaten.  Lokale OpenMower-Kartenkoordinaten `pose.x` und `pose.y` werden nicht als Google-Maps-Koordinaten interpretiert.
 
 Hinweis: Der Controller ergänzt die internen Standard-Statuscache-Topics auch dann, wenn eine ältere `.env` noch eine eigene `OPENMOWER_STATUS_CACHE_TOPICS`-Liste ohne GPS-Topics enthält. Trotzdem sollte die `.env` beim Update mit der neuen `.env.example` abgeglichen werden.
+
+## v1.5 Erweiterung: Mowing-Progress-Status
+
+Für die aktuelle Mähfläche und den Mähfortschritt wird zusätzlich die Web-App-nahe Progress-Quelle abonniert:
+
+```text
+map/mowing_progress/status/json
+mowing_progress/status/json
+openmower/map/mowing_progress/status/json
+openmower/mowing_progress/status/json
+```
+
+Der Controller trennt diesen Live-Fortschritt vom Area-Queue/Plan-Cache. Dadurch bleiben Flächenname und `mowing_order` aus `area_queue/json` erhalten, während `areas[current_area_id].percent`, `state`, `current_path` und `current_path_index` aus dem Progress-Payload gelesen werden.
+
+Priorität für die aktive Fläche:
+
+1. `robot_state/json -> current_area_id`
+2. `map/mowing_progress/status/json -> current_area_id`
+3. `robot_state/json -> checkpoint_area_id` als Fallback
+
+Priorität für den Fortschritt:
+
+1. `map/mowing_progress/status/json -> areas[current_area_id].percent`
+2. `map/mowing_progress/status/json -> areas[current_area_id].paths[].completed_percent`
+3. älterer Area-Plan-Fallback `current_path_index / areas[area_id].paths[].points`
+4. plausibler `current_action_progress`, wenn größer als 0
+
+Verifikation:
+
+```bash
+docker logs waha_mqtt_controller --tail=100 | grep -Ei 'mowing_progress|mowing/area_queue|area_queue'
+```
+
+Erwartete neue Einträge:
+
+```text
+Subscribed OpenMower status cache topic: map/mowing_progress/status/json
+Subscribed OpenMower status cache topic: openmower/map/mowing_progress/status/json
+```

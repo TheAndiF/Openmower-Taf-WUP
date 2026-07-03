@@ -409,7 +409,8 @@ The default flow XML subscribes to ROS/OpenMower MQTT topics through the central
 
 | Topic | Used for |
 |---|---|
-| `robot_state/json` | OpenMower state, current area, charging flag and emergency flag. |
+| `robot_state/json` | OpenMower state, active/checkpoint area IDs, path, charging flag, emergency flag and Auto Mow values. |
+| `map/mowing_progress/status/json` | Live mowing progress: `current_area_id`, `areas[current_area_id].percent`, state, path and path index. |
 | `sensors/om_system_wifi_signal_percent/data` | WLAN strength in percent for status and WhatsApp notifications. |
 
 Enabled default flows:
@@ -421,7 +422,7 @@ Enabled default flows:
 | `openmower_error_notification` | `emergency` changes to `true`. | WhatsApp warning for an OpenMower error/emergency. |
 | `openmower_wifi_cache` | WLAN payload is received. | Internal cache update for status output. |
 
-The `Mobert: Status` reply contains a timestamp, MQTT connection state, WLAN strength, OpenMower state, area/dock/charging text and error/emergency status.
+The `Mobert: Status` reply contains a timestamp, MQTT connection state, WLAN strength, OpenMower state, current mowing area, mowing progress, Auto Mow state, charging text and error/emergency status.
 
 ## ROS-MQTT-Statusquellen für Mobert
 
@@ -434,7 +435,9 @@ Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Mel
 | `sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke ohne Prefix; nur dieses Text-/Zahlen-Topic fuer WLAN verwenden |
 | `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke mit `openmower/` Prefix, wird ebenfalls akzeptiert |
 | `area_queue/json`, `mow_area/json`, `mow_area/status/json`, `mowing_area/json`, `mowing/area_queue/json` | MowArea-Cache fuer Flächenname, `mowing_order` und Pfadpunkte ohne Prefix |
+| `map/mowing_progress/status/json`, `mowing_progress/status/json` | Live-Fortschritt aus der Web-App-Quelle ohne Prefix |
 | `openmower/area_queue/json`, `openmower/mow_area/json`, `openmower/mow_area/status/json`, `openmower/mowing_area/json`, `openmower/mowing/area_queue/json` | MowArea-Cache mit `openmower/` Prefix |
+| `openmower/map/mowing_progress/status/json`, `openmower/mowing_progress/status/json` | Live-Fortschritt aus der Web-App-Quelle mit `openmower/` Prefix |
 | `sensors/om_system_wifi_signal_percent/bson` | Binaeres Geschwistertopic; wird fuer den WLAN-Cache bewusst ignoriert |
 
 Wichtige Felder aus `robot_state`:
@@ -442,18 +445,20 @@ Wichtige Felder aus `robot_state`:
 | Feld | Verwendung |
 |---|---|
 | `current_state` | Statuszeile und Losfahr-Erkennung |
-| `checkpoint_area_id` | bevorzugte aktive Mähfläche fuer Status und MowArea |
-| `current_area` / `current_area_id` | Fallback fuer Flächenanzeige |
-| `current_path` / `current_path_index` | Pfad und Pfadindex fuer MowArea und Fortschrittsberechnung |
+| `current_area_id` | bevorzugte aktuell aktive Mähfläche fuer Status und MowArea |
+| `checkpoint_area_id` | letzter gespeicherter Checkpoint-Flächenbezug, Fallback falls keine aktive Fläche gemeldet wird |
+| `current_area` | numerischer Fallback fuer Flächenanzeige |
+| `current_path` / `current_path_index` | Pfad und Pfadindex fuer MowArea, falls der Progress-Payload keinen Pfad liefert |
 | `battery_percentage` | Akkustand, Werte 0..1 werden automatisch in Prozent umgerechnet |
 | `is_charging` | Ladezustand in der Akku-Zeile, z. B. `95 % (lädt)` |
+| `AutoMow` / `AutoMowSuspension` | Auto-Mow-Anzeige: aktiviert, deaktiviert, ausgesetzt bis Datum oder ausgesetzt unendlich bei Jahr 9999 |
 | `emergency` | Fehler-/Notfall-Erkennung |
 
 
 
 ## Status-Frische und Nachrichtenhistorie
 
-`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state/json` und `sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit `openmower/` Prefix; fuer WLAN wird ausschliesslich das konkrete `/data` Topic akzeptiert. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
+`Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state/json`, `map/mowing_progress/status/json` und `sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit `openmower/` Prefix; fuer WLAN wird ausschliesslich das konkrete `/data` Topic akzeptiert. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
 
 Der kompakte Status enthält keine Dock-Zeile. `is_charging=1` wird in der Akku-Zeile als `(lädt)` angezeigt. Bei `is_charging=0` wird nur der Akkustand ausgegeben.
 
@@ -466,7 +471,7 @@ Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logi
 
 ## v1.3 Hinweis: Statusformat und Hilfe
 
-`Mobert: Status` formatiert die Zeit nun lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und haengt beim Maehen den Fortschritt aus `current_action_progress` direkt hinter die Flaeche an, z. B. `Fläche 1 (42%)`. `Emergency` und `Fehler` werden immer ausgegeben.
+`Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
 `Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
 

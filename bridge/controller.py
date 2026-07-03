@@ -954,11 +954,17 @@ OPENMOWER_STATE: Dict[str, Any] = {
     "gps_position": {},
     "gps_position_time": "",
     # MowArea cache stores the latest area queue / path plan payload.  The
-    # compact status uses it to translate checkpoint_area_id to a human-readable
-    # area name and to calculate the displayed mowing progress from path points.
+    # compact status uses it to translate area IDs to human-readable area
+    # names.  Live percent values are stored separately in mowing_progress.
     "mow_area": {},
     "mow_area_previous": {},
     "mow_area_time": "",
+    # map/mowing_progress/status/json stores live area progress from the Web-App
+    # style status payload.  It is kept separate from the area queue/plan cache
+    # so a progress-only payload cannot overwrite the human-readable area names.
+    "mowing_progress": {},
+    "mowing_progress_previous": {},
+    "mowing_progress_time": "",
     "wifi_percent": "unbekannt",
     "wifi_time": "",
     "last_mqtt_topic": "",
@@ -972,8 +978,8 @@ OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
 
 # Status requests wait only briefly for fresh ROS-MQTT data.  This avoids
 # "unbekannt" values when the command arrives shortly before the next
-# robot_state/json or WLAN sample, but it still replies quickly if ROS-MQTT
-# is quiet.
+# robot_state/json, mowing-progress or WLAN sample, but it still replies quickly
+# if ROS-MQTT is quiet.
 STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
 STATUS_TIMEZONE = os.getenv("STATUS_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin"
 
@@ -997,6 +1003,8 @@ DEFAULT_STATUS_CACHE_TOPICS = [
     "mow_area/status/json",
     "mowing_area/json",
     "mowing/area_queue/json",
+    "map/mowing_progress/status/json",
+    "mowing_progress/status/json",
     "sensors/om_system_wifi_signal_percent/data",
     "openmower/robot_state/json",
     "openmower/gps_state/json",
@@ -1007,6 +1015,8 @@ DEFAULT_STATUS_CACHE_TOPICS = [
     "openmower/mow_area/status/json",
     "openmower/mowing_area/json",
     "openmower/mowing/area_queue/json",
+    "openmower/map/mowing_progress/status/json",
+    "openmower/mowing_progress/status/json",
     "openmower/sensors/om_system_wifi_signal_percent/data",
 ]
 STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
@@ -2552,23 +2562,37 @@ def format_local_datetime_value(value: Any) -> str:
 
 
 def automow_text(robot_state: Dict[str, Any]) -> str:
-    """Return the compact AutoMow/Zeitplan status including suspension end."""
-    automow = parse_bool_like(robot_state.get("AutoMow"))
-    suspension = robot_state.get("AutoMowSuspension")
+    """Return AutoMow status including suspension end or infinity.
+
+    OpenMower publishes the values in robot_state/json.  The common fields are
+    AutoMow and AutoMowSuspension, but lower-case aliases are accepted so the
+    status remains robust if a bridge normalizes field names later.
+    """
+    automow_value = first_present_value(robot_state, "AutoMow", "auto_mow", "automow")
+    suspension = first_present_value(
+        robot_state,
+        "AutoMowSuspension",
+        "auto_mow_suspension",
+        "automow_suspension",
+        "suspension_until",
+        "schedule_suspension",
+    )
+    automow = parse_bool_like(automow_value)
+    suspension_text = str(suspension).strip() if suspension not in (None, "") else ""
+    suspension_bool = parse_bool_like(suspension_text) if suspension_text else None
+
+    if suspension_text and not (suspension_bool is False or suspension_text in {"0", "0.0"}):
+        lowered = suspension_text.lower()
+        if suspension_text.startswith("9999-") or lowered in {"true", "1", "on", "yes", "ja", "forever", "unlimited", "dauerhaft", "unbestimmt", "infinite", "infinity", "unendlich"}:
+            return "ausgesetzt unendlich"
+        until_text = format_local_datetime_value(suspension_text)
+        return f"ausgesetzt bis {until_text}" if until_text else "ausgesetzt unendlich"
+
     if automow is False:
         return "deaktiviert"
-    if suspension in (None, ""):
-        return "unbekannt" if automow is None else "aktiv"
-    suspension_text = str(suspension).strip()
-    suspension_bool = parse_bool_like(suspension)
-    if suspension_bool is False or suspension_text in {"0", "0.0"}:
-        return "aktiv"
-    if suspension_text.startswith("9999-") or suspension_text.lower() in {"true", "1", "on", "yes", "ja", "forever", "unlimited", "dauerhaft", "unbestimmt"}:
-        return "deaktiviert ohne Ablaufzeit"
-    until_text = format_local_datetime_value(suspension)
-    if until_text:
-        return f"deaktiviert bis {until_text}"
-    return "deaktiviert ohne Ablaufzeit"
+    if automow is True:
+        return "aktiviert"
+    return "unbekannt"
 
 
 def gps_state_dict() -> Dict[str, Any]:
@@ -2796,22 +2820,47 @@ def battery_text(robot_state: Dict[str, Any]) -> str:
     return battery
 
 
+def mowing_progress_dict() -> Dict[str, Any]:
+    state = OPENMOWER_STATE.get("mowing_progress") or {}
+    return dict(state) if isinstance(state, dict) else {}
+
+
 def mow_area_dict() -> Dict[str, Any]:
     state = OPENMOWER_STATE.get("mow_area") or {}
     return dict(state) if isinstance(state, dict) else {}
 
 
-def robot_active_area_id(robot_state: Dict[str, Any]) -> str:
-    """Return the area currently being worked on.
+def mowing_progress_area(area_id: str = "") -> Dict[str, Any]:
+    progress = mowing_progress_dict()
+    areas = progress.get("areas") if isinstance(progress.get("areas"), dict) else {}
+    active_id = str(area_id or progress.get("current_area_id") or "").strip()
+    area = dict_get_by_text_key(areas, active_id) if active_id else None
+    if isinstance(area, dict):
+        return dict(area)
+    return {}
 
-    OpenMower's live state uses checkpoint_area_id as the active mowing area.
-    current_area_id can be empty while the area is still in progress, therefore
-    checkpoint_area_id is preferred for Status and MowArea.
+
+def robot_active_area_id(robot_state: Dict[str, Any]) -> str:
+    """Return the currently active mowing area.
+
+    Priority follows the OpenMower MQTT semantics used by the Web App:
+    robot_state/current_area_id is the active area, mowing_progress/current_area_id
+    mirrors the active progress payload, and checkpoint_area_id is only the saved
+    checkpoint-area fallback.
     """
-    for key in ("checkpoint_area_id", "current_area_id", "area_id"):
+    for key in ("current_area_id", "area_id"):
         value = str(robot_state.get(key) or "").strip()
         if value:
             return value
+
+    progress_area_id = str(mowing_progress_dict().get("current_area_id") or "").strip()
+    if progress_area_id:
+        return progress_area_id
+
+    checkpoint_area_id = str(robot_state.get("checkpoint_area_id") or "").strip()
+    if checkpoint_area_id:
+        return checkpoint_area_id
+
     area_data = mow_area_dict()
     for item in area_data.get("area_queue") or []:
         if isinstance(item, dict) and str(item.get("status") or "").strip().lower() == "in_progress":
@@ -2824,7 +2873,7 @@ def find_mow_area_queue_item(area_id: str) -> Dict[str, Any]:
     queue = area_data.get("area_queue") if isinstance(area_data.get("area_queue"), list) else []
     if area_id:
         for item in queue:
-            if isinstance(item, dict) and str(item.get("area_id") or "") == area_id:
+            if isinstance(item, dict) and str(item.get("area_id") or "") == str(area_id):
                 return item
     for item in queue:
         if isinstance(item, dict) and str(item.get("status") or "").strip().lower() == "in_progress":
@@ -2835,7 +2884,7 @@ def find_mow_area_queue_item(area_id: str) -> Dict[str, Any]:
 def mow_area_plan(area_id: str) -> Dict[str, Any]:
     area_data = mow_area_dict()
     areas = area_data.get("areas") if isinstance(area_data.get("areas"), dict) else {}
-    plan = areas.get(area_id) if area_id else None
+    plan = dict_get_by_text_key(areas, area_id) if area_id else None
     return dict(plan) if isinstance(plan, dict) else {}
 
 
@@ -2858,27 +2907,54 @@ def format_mow_area_progress(value: Optional[float]) -> str:
     return f"{value:.1f} %"
 
 
-def mow_area_progress_percent(robot_state: Dict[str, Any], area_id: str) -> Optional[float]:
-    """Calculate mowing progress from path index and cached area path points.
+def normalize_percent_value(value: Any) -> Optional[float]:
+    number = parse_float_like(value)
+    if number is None:
+        return None
+    if 0 <= number <= 1:
+        number *= 100
+    return max(0.0, min(100.0, number))
 
-    current_action_progress often remains 0.0 although the Web-App already
-    shows progress.  Therefore the controller first calculates progress as
-    current_path_index / total planned points of the active area.
+
+def mowing_progress_percent_from_paths(progress_area: Dict[str, Any]) -> Optional[float]:
+    """Fallback for progress payloads that only expose paths[].completed_percent."""
+    values: List[float] = []
+    for path in progress_area.get("paths") or []:
+        if not isinstance(path, dict):
+            continue
+        number = normalize_percent_value(path.get("completed_percent"))
+        if number is not None:
+            values.append(number)
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def mow_area_progress_percent(robot_state: Dict[str, Any], area_id: str) -> Optional[float]:
+    """Return progress for the active area.
+
+    Preferred source is map/mowing_progress/status/json ->
+    areas[current_area_id].percent.  Older area-queue installations still work
+    through the previous current_path_index / total planned points fallback.
     """
+    progress_area = mowing_progress_area(area_id)
+    progress = normalize_percent_value(progress_area.get("percent")) if progress_area else None
+    if progress is not None:
+        return progress
+
+    progress = mowing_progress_percent_from_paths(progress_area) if progress_area else None
+    if progress is not None:
+        return progress
+
     path_index = parse_float_like(robot_state.get("current_path_index"))
     total_points = mow_area_total_points(area_id)
     if path_index is not None and path_index >= 0 and total_points > 0:
         return max(0.0, min(100.0, (path_index / total_points) * 100.0))
 
-    # Fallback only when OpenMower publishes a plausible non-zero progress.
-    # This prevents the misleading "00%" status when current_action_progress
-    # is simply not populated by the source.
     raw_progress = parse_float_like(robot_state.get("current_action_progress"))
     if raw_progress is None or raw_progress <= 0:
         return None
-    if 0 < raw_progress <= 1:
-        raw_progress *= 100
-    return max(0.0, min(100.0, raw_progress))
+    return normalize_percent_value(raw_progress)
 
 
 def current_mow_area_values(robot_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2887,20 +2963,32 @@ def current_mow_area_values(robot_state: Optional[Dict[str, Any]] = None) -> Dic
     queue_item = find_mow_area_queue_item(area_id)
     if not area_id:
         area_id = str(queue_item.get("area_id") or "").strip()
+    progress_area = mowing_progress_area(area_id)
     area_number = str(robot_state.get("current_area") or "").strip()
     fallback_name = f"Fläche {area_number}" if area_number and area_number not in {"-1", "0"} else area_id
-    name = str(queue_item.get("name") or fallback_name or "keine aktive Fläche").strip()
-    order = queue_item.get("mowing_order")
+    plan = mow_area_plan(area_id)
+    name = str(
+        queue_item.get("name")
+        or plan.get("name")
+        or progress_area.get("name")
+        or fallback_name
+        or "keine aktive Fläche"
+    ).strip()
+    order = queue_item.get("mowing_order") or plan.get("mowing_order")
     progress = mow_area_progress_percent(robot_state, area_id) if area_id else None
+    current_path = progress_area.get("current_path") if isinstance(progress_area, dict) and "current_path" in progress_area else robot_state.get("current_path")
+    current_path_index = progress_area.get("current_path_index") if isinstance(progress_area, dict) and "current_path_index" in progress_area else robot_state.get("current_path_index")
+    state = str(progress_area.get("state") or queue_item.get("status") or "").strip()
     return {
         "area_id": area_id,
+        "checkpoint_area_id": str(robot_state.get("checkpoint_area_id") or "").strip(),
         "name": name,
         "mowing_order": order,
-        "status": str(queue_item.get("status") or "").strip(),
+        "status": state,
         "progress_percent": progress,
         "progress_text": format_mow_area_progress(progress),
-        "current_path": robot_state.get("current_path"),
-        "current_path_index": robot_state.get("current_path_index"),
+        "current_path": current_path,
+        "current_path_index": current_path_index,
         "total_points": mow_area_total_points(area_id) if area_id else 0,
     }
 
@@ -2971,7 +3059,7 @@ def bot_status_text() -> str:
         f"*Status:* {state_name}",
         *bot_status_area_lines(robot_state),
         f"*Akku:* {battery_text(robot_state)}",
-        f"*Automatik:* {automow_text(robot_state)}",
+        f"*Auto Mow:* {automow_text(robot_state)}",
         f"*WLAN:* {format_wifi_percent(wifi_value)}",
     ]
     lines.extend(bot_gps_compact_lines())
@@ -3117,6 +3205,65 @@ def extract_wifi_percent_value(payload: str, parsed: Any) -> Optional[float]:
     return parse_float_like(payload)
 
 
+def dict_get_by_text_key(mapping: Any, key: Any) -> Any:
+    """Return dict item by exact key or by string-equivalent key."""
+    if not isinstance(mapping, dict) or key in (None, ""):
+        return None
+    if key in mapping:
+        return mapping[key]
+    key_text = str(key)
+    for item_key, item_value in mapping.items():
+        if str(item_key) == key_text:
+            return item_value
+    return None
+
+
+def is_mowing_progress_topic(source_topic: str) -> bool:
+    """Recognise Web-App style mowing progress topics with optional prefixes."""
+    return (
+        mqtt_topic_matches_suffix(source_topic, "map/mowing_progress/status/json")
+        or mqtt_topic_matches_suffix(source_topic, "mowing_progress/status/json")
+    )
+
+
+def payload_looks_like_mowing_progress(root: Any) -> bool:
+    """Detect map/mowing_progress/status/json style payloads."""
+    if not isinstance(root, dict) or not isinstance(root.get("areas"), dict):
+        return False
+    current_area_id = str(root.get("current_area_id") or "").strip()
+    area = dict_get_by_text_key(root.get("areas"), current_area_id) if current_area_id else None
+    if isinstance(area, dict) and any(key in area for key in ("percent", "state", "current_path", "current_path_index")):
+        return True
+    for item in root.get("areas", {}).values():
+        if isinstance(item, dict) and any(key in item for key in ("percent", "state", "current_path", "current_path_index")):
+            return True
+        if isinstance(item, dict):
+            for path in item.get("paths") or []:
+                if isinstance(path, dict) and "completed_percent" in path:
+                    return True
+    return False
+
+
+def payload_contains_area_plan(root: Any) -> bool:
+    """Detect area queue/path-plan payloads without treating progress as a plan."""
+    if not isinstance(root, dict):
+        return False
+    if isinstance(root.get("area_queue"), list):
+        return True
+    areas = root.get("areas")
+    if not isinstance(areas, dict):
+        return False
+    for area in areas.values():
+        if not isinstance(area, dict):
+            continue
+        if any(key in area for key in ("name", "mowing_order", "area_id")):
+            return True
+        for path in area.get("paths") or []:
+            if isinstance(path, dict) and isinstance(path.get("points"), list):
+                return True
+    return False
+
+
 def update_mqtt_state_cache(source_topic: str, payload: str) -> Tuple[Any, Any]:
     parsed = try_parse_json_value(payload)
     previous_entry = MQTT_TOPIC_CACHE.get(source_topic, {})
@@ -3134,7 +3281,12 @@ def update_openmower_state(source_topic: str, payload: str, parsed: Any, previou
         OPENMOWER_STATE["last_mqtt_time"] = now_iso()
         changed = True
         root = unwrap_data_root(parsed)
-        if isinstance(root, dict) and (isinstance(root.get("area_queue"), list) or isinstance(root.get("areas"), dict)):
+        if isinstance(root, dict) and (is_mowing_progress_topic(source_topic) or payload_looks_like_mowing_progress(root)):
+            OPENMOWER_STATE["mowing_progress_previous"] = dict(OPENMOWER_STATE.get("mowing_progress") or {})
+            OPENMOWER_STATE["mowing_progress"] = root
+            OPENMOWER_STATE["mowing_progress_time"] = now_iso()
+            changed = True
+        if isinstance(root, dict) and payload_contains_area_plan(root):
             OPENMOWER_STATE["mow_area_previous"] = dict(OPENMOWER_STATE.get("mow_area") or {})
             OPENMOWER_STATE["mow_area"] = root
             OPENMOWER_STATE["mow_area_time"] = now_iso()
@@ -3231,16 +3383,18 @@ def wait_for_fresh_openmower_status(timeout_seconds: float = STATUS_FRESH_WAIT_S
     end_time = time.monotonic() + timeout_seconds
     with OPENMOWER_STATE_UPDATED:
         start_robot_time = str(OPENMOWER_STATE.get("robot_state_time") or "")
+        start_mowing_progress_time = str(OPENMOWER_STATE.get("mowing_progress_time") or "")
         start_wifi_time = str(OPENMOWER_STATE.get("wifi_time") or "")
         while True:
             robot_is_fresh = bool(OPENMOWER_STATE.get("robot_state_time")) and str(OPENMOWER_STATE.get("robot_state_time")) != start_robot_time
+            mowing_progress_is_fresh = bool(OPENMOWER_STATE.get("mowing_progress_time")) and str(OPENMOWER_STATE.get("mowing_progress_time")) != start_mowing_progress_time
             wifi_is_fresh = bool(OPENMOWER_STATE.get("wifi_time")) and str(OPENMOWER_STATE.get("wifi_time")) != start_wifi_time
             # If one value did not exist before and arrives now, that is fresh too.
-            if robot_is_fresh and wifi_is_fresh:
+            if robot_is_fresh and mowing_progress_is_fresh and wifi_is_fresh:
                 return True
             remaining = end_time - time.monotonic()
             if remaining <= 0:
-                return robot_is_fresh or wifi_is_fresh
+                return robot_is_fresh or mowing_progress_is_fresh or wifi_is_fresh
             OPENMOWER_STATE_UPDATED.wait(timeout=remaining)
 
 

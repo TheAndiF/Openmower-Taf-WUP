@@ -2,7 +2,7 @@
 
 ## Purpose
 
-When WAHA reports the selected WhatsApp session as `SCAN_QR_CODE` or `QR`, the controller reads the WAHA QR raw value and publishes it to MQTT. A consuming UI can render this value again as a QR code.
+When WAHA reports the selected WhatsApp session as `SCAN_QR_CODE` or `QR`, the controller reads the WAHA QR raw value and publishes it to MQTT. A second app on the same device can subscribe to the value and render it again as a WhatsApp pairing QR code.
 
 The controller does not parse the Docker console QR output. It uses the WAHA HTTP API endpoint:
 
@@ -12,7 +12,7 @@ GET /api/{session}/auth/qr?format=raw
 
 ## MQTT topics
 
-The requested compact topics are:
+Only these QR data topics are published:
 
 ```text
 messenger/status/WAHA_QR_Code_Data
@@ -21,42 +21,35 @@ messenger/waha/QR_Code_Data
 
 `messenger` is the default `MQTT_BASE_TOPIC`. If the base topic is changed, the prefixes change accordingly.
 
-Additional status topics:
+No QR metadata topics such as `Text`, `Status`, `Required`, `Available`, `Session` or `Error` are published. This keeps the status output compact and avoids displaying the long QR payload together with duplicate explanatory fields.
+
+The controller clears retained QR metadata topics from earlier package versions, including:
 
 ```text
+messenger/status/WAHA_QR_Code_Text
+messenger/status/WAHA_QR_Code_Status
 messenger/status/WAHA_QR_Code_Required
 messenger/status/WAHA_QR_Code_Available
-messenger/status/WAHA_QR_Code_Text
 messenger/status/WAHA_QR_Code_Session
-messenger/status/WAHA_QR_Code_Status
 messenger/status/WAHA_QR_Code_Error
-
+messenger/waha/QR_Code_Text
+messenger/waha/QR_Code_Status
 messenger/waha/QR_Code_Required
 messenger/waha/QR_Code_Available
-messenger/waha/QR_Code_Text
 messenger/waha/QR_Code_Session
-messenger/waha/QR_Code_Status
 messenger/waha/QR_Code_Error
-
-messenger/waha/session/qr/raw
-messenger/waha/session/qr/json
-messenger/waha/session/qr/required
-messenger/waha/session/qr/available
-messenger/waha/session/qr/session
-messenger/waha/session/qr/status
-messenger/waha/session/qr/text
-messenger/waha/session/qr/error
-messenger/waha/session/qr/last_update
+messenger/waha/session/qr/#
 ```
 
 ## Topic values
 
-| Situation | Data topic value | Required | Available | Text |
-|---|---|---:|---:|---|
-| WAHA status is `SCAN_QR_CODE` or `QR` and WAHA returns a value | raw QR pairing value | `true` | `true` | `QR-Code zum Koppeln erforderlich` |
-| WAHA requires a QR code but the value is not available yet | empty | `true` | `false` | `QR-Code erforderlich, aber noch nicht verfügbar` |
-| WAHA is `WORKING` or no QR is needed | empty | `false` | `false` | `Kein QR-Code erforderlich` |
-| `WAHA_QR_MQTT_ENABLED=false` | empty | `false` | `false` | `QR-MQTT-Ausgabe deaktiviert` |
+| Situation | Data topic value |
+|---|---|
+| WAHA status is `SCAN_QR_CODE` or `QR` and WAHA returns a value | raw QR pairing value |
+| WAHA requires a QR code but the value is not available yet | empty |
+| WAHA is `WORKING`, no QR is needed or `WAHA_QR_MQTT_ENABLED=false` | empty |
+
+An empty value means that a consumer should not render a QR code.
 
 ## Configuration
 
@@ -70,13 +63,13 @@ WAHA_QR_REFRESH_SECONDS=20
 
 ## Test commands
 
-Subscribe to the requested WAHA topic:
+Subscribe to the WAHA QR data topic:
 
 ```bash
 mosquitto_sub -h Mosquitto -t 'messenger/waha/QR_Code_Data' -v
 ```
 
-Subscribe to the requested status topic:
+Subscribe to the status QR data topic:
 
 ```bash
 mosquitto_sub -h Mosquitto -t 'messenger/status/WAHA_QR_Code_Data' -v
@@ -102,4 +95,4 @@ done
 - The QR loop refreshes the MQTT QR value every `WAHA_QR_REFRESH_SECONDS` seconds.
 - The general controller refresh loop still publishes the full state using `CONTROLLER_REFRESH_SECONDS`.
 - `compose.example.yaml` includes the QR MQTT environment variables for the controller service.
-- If WAHA is already connected, the QR data topic is empty and `Required=false`.
+- If WAHA is already connected, the QR data topic is empty.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-07 - v1.1 - Compact WAHA QR data topics
+
+- Reduced the visible MQTT QR output to the two required data topics: `messenger/status/WAHA_QR_Code_Data` and `messenger/waha/QR_Code_Data`.
+- Removed QR text/status/required/available/session/error publications from the status and WAHA topic areas.
+- Cleared retained QR metadata topics from earlier package versions so old status entries disappear from MQTT views.
+- Kept active QR values non-retained by default and retained empty values when no QR is available.
+- Updated README and MQTT documentation for the compact QR handover used by another local app.
+
 ## 2026-07-07 - v1.0 - WAHA QR data via MQTT
 
 - Added MQTT publication of WAHA WhatsApp pairing QR raw values while the selected session is in `SCAN_QR_CODE` or `QR`.

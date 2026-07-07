@@ -816,135 +816,78 @@ def fetch_qr_raw(session_name: str) -> Tuple[str, str]:
     return "", "Unexpected WAHA QR response"
 
 
-def qr_payload(session: Dict[str, Any], qr_value: str = "", error: str = "") -> Dict[str, Any]:
-    """Build a structured QR status payload without changing the raw value."""
-    status = str(session.get("status") or "")
-    qr_required = status.upper() in {"SCAN_QR_CODE", "QR"}
-    return {
-        "d": {
-            "enabled": bool(WAHA_QR_MQTT_ENABLED),
-            "required": qr_required,
-            "available": bool(qr_value),
-            "session": session.get("name", ""),
-            "status": status,
-            "value": qr_value,
-            "error": error,
-            "format": "raw",
-            "render_hint": "Render value as a QR code, for example with qrencode -t ANSIUTF8.",
-            "last_update": now_iso(),
-        }
-    }
+
+def clear_deprecated_qr_topics(client: mqtt.Client) -> None:
+    """Remove retained QR metadata topics from earlier package versions.
+
+    The current public QR API intentionally exposes only the raw QR data topic
+    required by a second local app.  Older metadata topics are cleared so UI
+    views do not keep showing text/status/required fields from retained MQTT
+    state.
+    """
+    deprecated_topics = [
+        topic("status", "WAHA_QR_Code_Required"),
+        topic("status", "WAHA_QR_Code_Available"),
+        topic("status", "WAHA_QR_Code_Text"),
+        topic("status", "WAHA_QR_Code_Session"),
+        topic("status", "WAHA_QR_Code_Status"),
+        topic("status", "WAHA_QR_Code_Error"),
+        topic("waha", "QR_Code_Required"),
+        topic("waha", "QR_Code_Available"),
+        topic("waha", "QR_Code_Text"),
+        topic("waha", "QR_Code_Session"),
+        topic("waha", "QR_Code_Status"),
+        topic("waha", "QR_Code_Error"),
+        topic("waha", "session", "qr", "raw"),
+        topic("waha", "session", "qr", "json"),
+        topic("waha", "session", "qr", "required"),
+        topic("waha", "session", "qr", "available"),
+        topic("waha", "session", "qr", "session"),
+        topic("waha", "session", "qr", "status"),
+        topic("waha", "session", "qr", "last_update"),
+        topic("waha", "session", "qr", "text"),
+        topic("waha", "session", "qr", "error"),
+    ]
+    for mqtt_topic in deprecated_topics:
+        clear_retained(client, mqtt_topic)
 
 
-def publish_qr_status_aliases(
-    client: mqtt.Client,
-    *,
-    qr_value: str,
-    required: bool,
-    available: bool,
-    session_name: str,
-    status: str,
-    text: str,
-    error: str = "",
-) -> None:
-    """Publish QR data in the compact status/waha topic names used by UI flows."""
-    # Requested aliases:
-    #   <base>/status/WAHA_QR_Code_Data
-    #   <base>/waha/QR_Code_Data
-    # Active QR data is sensitive and not retained by default. When no QR is
-    # needed, an empty retained value clears old data from the broker.
+def publish_qr_data_topics(client: mqtt.Client, qr_value: str) -> None:
+    """Publish only the two QR data topics used by status and WAHA consumers.
+
+    Active QR data is sensitive and not retained by default. When no QR is
+    needed or no QR value is available, an empty retained value clears old QR
+    data from the broker.
+    """
     data_retain = WAHA_QR_RAW_RETAIN if qr_value else True
-
     publish(client, topic("status", "WAHA_QR_Code_Data"), qr_value, retain=data_retain)
     publish(client, topic("waha", "QR_Code_Data"), qr_value, retain=data_retain)
-
-    publish(client, topic("status", "WAHA_QR_Code_Required"), str(required).lower())
-    publish(client, topic("status", "WAHA_QR_Code_Available"), str(available).lower())
-    publish(client, topic("status", "WAHA_QR_Code_Text"), text)
-    publish(client, topic("status", "WAHA_QR_Code_Session"), session_name)
-    publish(client, topic("status", "WAHA_QR_Code_Status"), status)
-    publish(client, topic("status", "WAHA_QR_Code_Error"), error)
-
-    publish(client, topic("waha", "QR_Code_Required"), str(required).lower())
-    publish(client, topic("waha", "QR_Code_Available"), str(available).lower())
-    publish(client, topic("waha", "QR_Code_Text"), text)
-    publish(client, topic("waha", "QR_Code_Session"), session_name)
-    publish(client, topic("waha", "QR_Code_Status"), status)
-    publish(client, topic("waha", "QR_Code_Error"), error)
+    clear_deprecated_qr_topics(client)
 
 
 def publish_waha_qr(client: mqtt.Client, session: Dict[str, Any]) -> None:
-    """Publish QR pairing data while WAHA waits for a WhatsApp scan."""
+    """Publish the WAHA pairing QR value while a WhatsApp scan is required.
+
+    Only these MQTT topics are published for QR handover:
+      - <base>/status/WAHA_QR_Code_Data
+      - <base>/waha/QR_Code_Data
+
+    Empty values mean that no usable QR data is currently available.  This keeps
+    the visible status output compact and lets another local app render the QR
+    code from a single MQTT value.
+    """
     session_name = str(session.get("name") or "")
     status = str(session.get("status") or "").upper()
     qr_required = status in {"SCAN_QR_CODE", "QR"}
 
-    if not WAHA_QR_MQTT_ENABLED:
-        text = "QR-MQTT-Ausgabe deaktiviert"
-        publish(client, topic("waha", "session", "qr", "required"), "false")
-        publish(client, topic("waha", "session", "qr", "available"), "false")
-        publish(client, topic("waha", "session", "qr", "text"), text)
-        publish_qr_status_aliases(
-            client,
-            qr_value="",
-            required=False,
-            available=False,
-            session_name=session_name,
-            status=status,
-            text=text,
-        )
-        clear_retained(client, topic("waha", "session", "qr", "raw"))
-        clear_retained(client, topic("waha", "session", "qr", "json"))
-        return
-
-    if not qr_required:
-        text = "Kein QR-Code erforderlich"
-        publish(client, topic("waha", "session", "qr", "required"), "false")
-        publish(client, topic("waha", "session", "qr", "available"), "false")
-        publish(client, topic("waha", "session", "qr", "text"), text)
-        publish_qr_status_aliases(
-            client,
-            qr_value="",
-            required=False,
-            available=False,
-            session_name=session_name,
-            status=status,
-            text=text,
-        )
-        # Make sure a previously retained QR value cannot linger in the broker.
-        clear_retained(client, topic("waha", "session", "qr", "raw"))
-        clear_retained(client, topic("waha", "session", "qr", "json"))
-        clear_retained(client, topic("waha", "session", "qr", "error"))
+    if not WAHA_QR_MQTT_ENABLED or not qr_required:
+        publish_qr_data_topics(client, "")
         return
 
     qr_value, error = fetch_qr_raw(session_name)
-    payload = qr_payload(session, qr_value, error)
-    text = "QR-Code zum Koppeln erforderlich" if qr_value else "QR-Code erforderlich, aber noch nicht verfügbar"
-
-    publish(client, topic("waha", "session", "qr", "required"), "true")
-    publish(client, topic("waha", "session", "qr", "available"), str(bool(qr_value)).lower())
-    publish(client, topic("waha", "session", "qr", "session"), session_name)
-    publish(client, topic("waha", "session", "qr", "status"), status)
-    publish(client, topic("waha", "session", "qr", "last_update"), payload["d"]["last_update"])
-    publish(client, topic("waha", "session", "qr", "text"), text)
-    publish(client, topic("waha", "session", "qr", "error"), error)
-    publish_qr_status_aliases(
-        client,
-        qr_value=qr_value,
-        required=True,
-        available=bool(qr_value),
-        session_name=session_name,
-        status=status,
-        text=text,
-        error=error,
-    )
-
-    if qr_value:
-        publish(client, topic("waha", "session", "qr", "raw"), qr_value, retain=WAHA_QR_RAW_RETAIN)
-        publish(client, topic("waha", "session", "qr", "json"), payload, retain=WAHA_QR_RAW_RETAIN)
-    else:
-        clear_retained(client, topic("waha", "session", "qr", "raw"))
-        clear_retained(client, topic("waha", "session", "qr", "json"))
+    if error:
+        log(f"WAHA QR fetch error: {error}")
+    publish_qr_data_topics(client, qr_value)
 
 
 def fetch_groups(session_name: str) -> Dict[str, Dict[str, str]]:
@@ -4201,18 +4144,7 @@ def waha_qr_loop(client: mqtt.Client) -> None:
             SESSION = session
             publish_waha_qr(client, session)
         except Exception as exc:
-            text = "QR-Code konnte nicht geprüft werden"
-            publish_qr_status_aliases(
-                client,
-                qr_value="",
-                required=False,
-                available=False,
-                session_name=str(SESSION.get("name", "") if SESSION else ""),
-                status=str(SESSION.get("status", "ERROR") if SESSION else "ERROR"),
-                text=text,
-                error=str(exc),
-            )
-            publish(client, topic("waha", "session", "qr", "error"), str(exc))
+            publish_qr_data_topics(client, "")
             log(f"WAHA QR refresh error: {exc}")
 
 

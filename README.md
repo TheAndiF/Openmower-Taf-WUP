@@ -239,25 +239,13 @@ messenger/
 │   ├── description
 │   ├── provider
 │   ├── protocol
-│   ├── WAHA_QR_Code_Data
-│   ├── WAHA_QR_Code_Required
-│   ├── WAHA_QR_Code_Available
-│   ├── WAHA_QR_Code_Text
-│   ├── WAHA_QR_Code_Session
-│   ├── WAHA_QR_Code_Status
-│   └── WAHA_QR_Code_Error
+│   └── WAHA_QR_Code_Data
 │
 ├── waha/
 │   ├── json
 │   ├── enabled
 │   ├── text
 │   ├── QR_Code_Data
-│   ├── QR_Code_Required
-│   ├── QR_Code_Available
-│   ├── QR_Code_Text
-│   ├── QR_Code_Session
-│   ├── QR_Code_Status
-│   ├── QR_Code_Error
 │   ├── set/
 │   │   ├── session/
 │   │   │   └── json
@@ -274,16 +262,6 @@ messenger/
 │   │   ├── can_send
 │   │   ├── can_read_groups
 │   │   ├── last_error
-│   │   ├── qr/
-│   │   │   ├── raw
-│   │   │   ├── json
-│   │   │   ├── required
-│   │   │   ├── available
-│   │   │   ├── session
-│   │   │   ├── status
-│   │   │   ├── text
-│   │   │   ├── error
-│   │   │   └── last_update
 │   │   └── repair/
 │   │       ├── json
 │   │       ├── enabled
@@ -384,35 +362,24 @@ messenger/
 
 ## WAHA QR code via MQTT
 
-When the selected WAHA session is in `SCAN_QR_CODE` or `QR`, the controller fetches the raw QR value from WAHA and publishes it to MQTT.  The requested compact topics are:
+When the selected WAHA session is in `SCAN_QR_CODE` or `QR`, the controller fetches the raw QR value from WAHA and publishes only the data value needed by another local app to render the pairing QR code.
+
+Published QR topics:
 
 ```text
 messenger/status/WAHA_QR_Code_Data
 messenger/waha/QR_Code_Data
 ```
 
-The same state is also available below `messenger/waha/session/qr/#`.
-
-```text
-messenger/waha/session/qr/raw
-messenger/waha/session/qr/json
-messenger/waha/session/qr/required
-messenger/waha/session/qr/available
-messenger/waha/session/qr/session
-messenger/waha/session/qr/status
-messenger/waha/session/qr/text
-messenger/waha/session/qr/error
-messenger/waha/session/qr/last_update
-```
+No separate QR text, status, required, available or session metadata topics are published. Older retained metadata topics from previous package versions are cleared automatically.
 
 Behavior:
 
-| WAHA status | Data topic | Required | Available | Text |
-|---|---|---:|---:|---|
-| `SCAN_QR_CODE` or `QR` and WAHA returns a value | raw QR pairing value | `true` | `true` | `QR-Code zum Koppeln erforderlich` |
-| `SCAN_QR_CODE` or `QR` but WAHA returns no value yet | empty | `true` | `false` | `QR-Code erforderlich, aber noch nicht verfügbar` |
-| `WORKING` or any state where no pairing is needed | empty | `false` | `false` | `Kein QR-Code erforderlich` |
-| QR MQTT output disabled | empty | `false` | `false` | `QR-MQTT-Ausgabe deaktiviert` |
+| WAHA situation | Data topic value |
+|---|---|
+| `SCAN_QR_CODE` or `QR` and WAHA returns a value | raw QR pairing value |
+| QR is required but WAHA has no value yet | empty |
+| WAHA is connected, no QR is needed or QR publishing is disabled | empty |
 
 Security: the active QR value is not retained by default because it can be used for WhatsApp pairing while it is valid. When no QR is needed, the controller publishes an empty retained value to clear stale broker data.
 

@@ -1021,6 +1021,36 @@ DEFAULT_STATUS_CACHE_TOPICS = [
 ]
 STATUS_CACHE_TOPICS_RAW = os.getenv("OPENMOWER_STATUS_CACHE_TOPICS", "").strip()
 
+# Runtime cache for OpenMower MQTT status values.
+# These globals are used by WhatsApp commands such as "Status", "MowArea" and
+# "GPS" as well as by MQTT-triggered notifications.  They must exist before the
+# first webhook or MQTT message arrives; otherwise Python raises NameError for
+# OPENMOWER_STATE_UPDATED / OPENMOWER_STATE / MQTT_TOPIC_CACHE.
+MQTT_TOPIC_CACHE: Dict[str, Dict[str, Any]] = {}
+OPENMOWER_STATE: Dict[str, Any] = {
+    "robot_state": {},
+    "robot_state_previous": {},
+    "robot_state_time": "",
+    "gps_state": {},
+    "gps_state_previous": {},
+    "gps_state_time": "",
+    "gps_position": {},
+    "gps_position_time": "",
+    "mow_area": {},
+    "mow_area_previous": {},
+    "mow_area_time": "",
+    "mowing_progress": {},
+    "mowing_progress_previous": {},
+    "mowing_progress_time": "",
+    "wifi_percent": None,
+    "wifi_time": "",
+    "last_mqtt_topic": "",
+    "last_mqtt_payload": "",
+    "last_mqtt_time": "",
+}
+OPENMOWER_STATE_UPDATED = threading.Condition()
+GPS_LOSS_ALERT_ACTIVE = False
+
 
 def configured_status_cache_topics() -> List[str]:
     if STATUS_CACHE_TOPICS_RAW:
@@ -1592,6 +1622,39 @@ def interpolate_template(template: str, values: Dict[str, Any]) -> str:
     return text
 
 
+def command_parameter_values_valid(cmd: BotCommand, values: Dict[str, str]) -> bool:
+    """Validate captured WhatsApp command parameters against JSON metadata."""
+    for name, spec in (cmd.parameters or {}).items():
+        required = as_bool(spec.get("required", True))
+        value = str(values.get(name, "") or "").strip()
+        if required and value == "":
+            return False
+        if value == "":
+            continue
+        param_type = str(spec.get("type") or "string").lower()
+        comparable: Any = value
+        if param_type in {"int", "integer"}:
+            try:
+                comparable = int(value)
+            except Exception:
+                return False
+        min_value = spec.get("min")
+        if min_value not in (None, ""):
+            try:
+                if comparable < int(str(min_value).strip()):
+                    return False
+            except Exception:
+                return False
+        max_value = spec.get("max")
+        if max_value not in (None, ""):
+            try:
+                if comparable > int(str(max_value).strip()):
+                    return False
+            except Exception:
+                return False
+    return True
+
+
 def find_command(command_text: str) -> Tuple[Optional[BotCommand], Dict[str, str]]:
     normalized = command_text.strip()
     for cmd in BOT_COMMANDS:
@@ -1599,7 +1662,9 @@ def find_command(command_text: str) -> Tuple[Optional[BotCommand], Dict[str, str
             continue
         match = cmd._regex.match(normalized)
         if match:
-            return cmd, {key: value.strip() for key, value in match.groupdict().items()}
+            values = {key: value.strip() for key, value in match.groupdict().items()}
+            if command_parameter_values_valid(cmd, values):
+                return cmd, values
     return None, {}
 
 

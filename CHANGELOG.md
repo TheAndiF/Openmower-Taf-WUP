@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-07 - v1.2.1 - WhatsApp command runtime fix
+
+- Added the missing OpenMower runtime caches `OPENMOWER_STATE`, `OPENMOWER_STATE_UPDATED`, `MQTT_TOPIC_CACHE` and `GPS_LOSS_ALERT_ACTIVE` to `bridge/controller.py`.
+- Fixed the `name 'OPENMOWER_STATE_UPDATED' is not defined` runtime error that could occur when `Mobert: Status` waits for fresh MQTT status samples.
+- Kept `Mobert: Status`, `Mobert: MowArea`, `Mobert: GPS` and MQTT-triggered OpenMower notifications usable even before the first OpenMower MQTT payload arrives.
+- Added parameter validation for WhatsApp commands so integer commands such as `Start {area}` and `Status alle {minutes}` reject non-numeric values and respect configured minimum/maximum values.
+- Statically checked all 20 WhatsApp commands from `controller_data/bot_commands.json` against the JSON flow executor.
+
 ## 2026-07-07 - v1.2 - JSON-only Mobert flow configuration
 
 - Replaced `/data/bot_commands.xml` with `/data/bot_commands.json` as the only active Mobert flow configuration.

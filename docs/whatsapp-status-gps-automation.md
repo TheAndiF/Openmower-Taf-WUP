@@ -178,9 +178,9 @@ Die aktiven Meldungen sind:
 
 | Ereignis | Umsetzung |
 |---|---|
-| Undocking | XML-Flow `openmower_undocking_notification`, wenn `current_state` nach `UNDOCKING` wechselt |
-| Docking abgeschlossen / Laden beginnt | XML-Flow `openmower_docking_idle_notification`, wenn `current_state` von `DOCKING` nach `IDLE` wechselt |
-| Emergency | XML-Flow `openmower_error_notification`, wenn `emergency` nach `1` wechselt |
+| Undocking | JSON-Flow `openmower_undocking_notification`, wenn `current_state` nach `UNDOCKING` wechselt |
+| Docking abgeschlossen / Laden beginnt | JSON-Flow `openmower_docking_idle_notification`, wenn `current_state` von `DOCKING` nach `IDLE` wechselt |
+| Emergency | JSON-Flow `openmower_error_notification`, wenn `emergency` nach `1` wechselt |
 | GPS-Verlust während des Mähens | Python-Logik im Controller, wenn `gps_state` nicht mehr fahrbereit ist und `robot_state.current_state=MOWING` gilt |
 
 Es gibt bewusst keine separate Meldung nur beim Eintritt in `DOCKING`.
@@ -188,9 +188,9 @@ Es gibt bewusst keine separate Meldung nur beim Eintritt in `DOCKING`.
 ## Geänderte Dateien
 
 - `bridge/controller.py`
-- `bridge/bot_commands.example.xml`
+- `bridge/bot_commands.example.json`
 - `bridge/config.example.json`
-- `controller_data/bot_commands.xml`
+- `controller_data/bot_commands.json`
 - `controller_data/config.json`
 - `.env.example`
 - `README.md`
@@ -203,7 +203,7 @@ Es gibt bewusst keine separate Meldung nur beim Eintritt in `DOCKING`.
 ## Prüfung
 
 - `bridge/controller.py` wurde mit `python -m py_compile` syntaktisch geprüft.
-- `controller_data/bot_commands.xml` wurde mit `xml.etree.ElementTree` geparst.
-- `bridge/bot_commands.example.xml` wurde mit `xml.etree.ElementTree` geparst.
+- `controller_data/bot_commands.json` wurde mit `json` geparst.
+- `bridge/bot_commands.example.json` wurde mit `json` geparst.
 
 Hinweis: Der Controller ergänzt die internen Standard-Statuscache-Topics auch dann, wenn eine ältere `.env` noch eine eigene `OPENMOWER_STATUS_CACHE_TOPICS`-Liste ohne GPS-Topics enthält. Trotzdem sollte die `.env` beim Update mit der neuen `.env.example` abgeglichen werden.

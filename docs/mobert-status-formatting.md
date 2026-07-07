@@ -1,8 +1,8 @@
-# Openmower-Taf-WUP - Mobert status formatting and XML help - v1.3
+# Openmower-Taf-WUP - Mobert status formatting and JSON help - v1.5
 
 ## Ziel
 
-`Mobert: Status` soll auf WhatsApp besser lesbar sein und die wichtigsten OpenMower-Werte eindeutig anzeigen. Außerdem soll `Mobert: ?` nicht mehr aus einer separaten, fest codierten Befehlsliste entstehen, sondern aus der aktuell geladenen XML-Konfiguration.
+`Mobert: Status` soll auf WhatsApp besser lesbar sein und die wichtigsten OpenMower-Werte eindeutig anzeigen. Außerdem soll `Mobert: ?` nicht mehr aus einer separaten, fest codierten Befehlsliste entstehen, sondern aus der aktuell geladenen JSON-Konfiguration.
 
 ## Statusformat
 
@@ -67,22 +67,22 @@ Die Statusantwort enthaelt immer beide Zeilen:
 
 Dadurch ist auch bei normalem Betrieb sichtbar, dass kein Emergency-Status anliegt.
 
-## XML als Quelle der Wahrheit fuer Hilfe
+## JSON als Quelle der Wahrheit fuer Hilfe
 
-`Mobert: ?` wird aus den geladenen `BotCommand`-Eintraegen erzeugt. Diese Eintraege entstehen beim Laden der aktiven XML-Datei:
+`Mobert: ?` wird aus den geladenen `BotCommand`-Eintraegen erzeugt. Diese Eintraege entstehen beim Laden der aktiven JSON-Datei:
 
 ```text
-/data/bot_commands.xml
+/data/bot_commands.json
 ```
 
 Damit gilt:
 
-- Aktivierte XML-Command-Flows erscheinen in der Hilfe.
-- Deaktivierte XML-Command-Flows erscheinen nicht.
-- Neue XML-Commands erscheinen nach Reload automatisch.
+- Aktivierte JSON-Command-Flows mit `show=true` erscheinen in der Hilfe.
+- Deaktivierte JSON-Command-Flows erscheinen nicht.
+- Neue JSON-Commands erscheinen nach Reload automatisch.
 - Der Python-Code enthaelt keine separate Befehlsliste fuer die Hilfe.
 
-Reload der XML:
+Reload der JSON:
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub -h localhost \
@@ -109,9 +109,9 @@ docker logs waha_mqtt_controller --tail=100 | grep -Ei 'Loaded|Subscribed OpenMo
 Danach `Mobert: Status` und `Mobert: ?` in der WhatsApp-Lauschgruppe testen.
 
 
-## v1.4 Hinweis: Hilfe als neu aufgebautes XML-Artefakt
+## v1.5 Hinweis: Hilfe als neu aufgebautes JSON-Artefakt
 
-Die Hilfe wird nun beim Laden der XML explizit neu aufgebaut. `Mobert: ?` verwendet dieses erzeugte Hilfeartefakt. Nach einer Aenderung ueber `messenger/bot/commands/set/xml` oder einem Reload ueber `messenger/bot/commands/set/renew/json` wird die Hilfe ebenfalls neu erzeugt.
+Die Hilfe wird nun beim Laden der JSON explizit neu aufgebaut. `Mobert: ?` verwendet dieses erzeugte Hilfeartefakt. Nach einer Aenderung ueber `messenger/bot/commands/set/config/json` oder einem Reload ueber `messenger/bot/commands/set/renew/json` wird die Hilfe ebenfalls neu erzeugt.
 
 Die retained MQTT-Snapshots stehen hier bereit:
 

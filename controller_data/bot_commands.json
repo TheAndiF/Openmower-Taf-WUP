@@ -1,0 +1,934 @@
+{
+  "format": "mobertBotConfig",
+  "version": "0.5",
+  "language": "de",
+  "head": {
+    "name": "Mobert OpenMower Flow Configuration",
+    "description": "JSON-gesteuerte Flow-Konfiguration mit zentralen Watchdog- und Output-Modulen.",
+    "enabled": true
+  },
+  "modules": {
+    "whatsapp": {
+      "kind": "whatsappModule",
+      "enabled": true,
+      "session": "Wasserleberweg",
+      "defaultGroup": "g014",
+      "listenerGroup": "g014",
+      "wakeWord": {
+        "text": "Mobert",
+        "required": true,
+        "syntax": "colon",
+        "caseSensitive": false
+      }
+    },
+    "whatsapp_watchdog": {
+      "kind": "inputModule",
+      "enabled": true,
+      "moduleRef": "whatsapp"
+    },
+    "mqtt_watchdog": {
+      "kind": "inputModule",
+      "enabled": true,
+      "subscribeMode": "enabled_flows"
+    },
+    "whatsapp_output": {
+      "kind": "outputModule",
+      "enabled": true,
+      "moduleRef": "whatsapp"
+    },
+    "mqtt_output": {
+      "kind": "outputModule",
+      "enabled": true
+    }
+  },
+  "flows": {
+    "help": {
+      "head": {
+        "name": "Help",
+        "description": "Hilfe anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "?"
+            }
+          },
+          "processing": {
+            "mode": "local_reply",
+            "template": "{help}"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "head": {
+        "name": "Status",
+        "description": "Status von Mobert und OpenMower anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status"
+            }
+          },
+          "processing": {
+            "mode": "local_status",
+            "responseTemplate": "status_short"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "mow_area": {
+      "head": {
+        "name": "MowArea",
+        "description": "Aktuelle Mähfläche mit Fortschritt anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "MowArea"
+            }
+          },
+          "processing": {
+            "mode": "local_mow_area"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "gps_details": {
+      "head": {
+        "name": "GPS details",
+        "description": "GPS-Untermenue mit Detailwerten anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "GPS"
+            }
+          },
+          "processing": {
+            "mode": "local_gps"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "gps_status_details": {
+      "head": {
+        "name": "GPS status details",
+        "description": "GPS-Untermenue mit Detailwerten anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "GPS Status"
+            }
+          },
+          "processing": {
+            "mode": "local_gps"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "status_push_set": {
+      "head": {
+        "name": "Status push set",
+        "description": "Automatischen Status alle X Minuten einschalten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status alle {minutes}"
+            },
+            "parameters": {
+              "minutes": {
+                "type": "integer",
+                "required": true,
+                "min": "1"
+              }
+            }
+          },
+          "processing": {
+            "mode": "set_status_push"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "status_push_off": {
+      "head": {
+        "name": "Status push off",
+        "description": "Automatischen Status ausschalten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status automatisch aus"
+            }
+          },
+          "processing": {
+            "mode": "status_push_off"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "status_push_info": {
+      "head": {
+        "name": "Status push info",
+        "description": "Automatischen Status anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status automatisch"
+            }
+          },
+          "processing": {
+            "mode": "status_push_info"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "append_status_on": {
+      "head": {
+        "name": "Append status on",
+        "description": "Status nach Befehlsbestaetigungen einschalten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status nach Befehl ein"
+            }
+          },
+          "processing": {
+            "mode": "set_append_status",
+            "value": "true"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "append_status_off": {
+      "head": {
+        "name": "Append status off",
+        "description": "Status nach Befehlsbestaetigungen ausschalten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status nach Befehl aus"
+            }
+          },
+          "processing": {
+            "mode": "set_append_status",
+            "value": "false"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "append_status_info": {
+      "head": {
+        "name": "Append status info",
+        "description": "Status nach Befehlsbestaetigungen anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Status nach Befehl"
+            }
+          },
+          "processing": {
+            "mode": "append_status_info"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "groups": {
+      "head": {
+        "name": "Groups",
+        "description": "Bekannte WhatsApp-Gruppen anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Gruppen"
+            }
+          },
+          "processing": {
+            "mode": "local_groups"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "target": {
+      "head": {
+        "name": "Target",
+        "description": "Standard-Zielgruppe anzeigen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Ziel"
+            }
+          },
+          "processing": {
+            "mode": "local_default_group"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "set_listener_group": {
+      "head": {
+        "name": "Set listener group",
+        "description": "Bot-Lauschgruppe setzen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Lauschen {group}"
+            },
+            "parameters": {
+              "group": {
+                "type": "string",
+                "required": true
+              }
+            }
+          },
+          "processing": {
+            "mode": "set_module_property",
+            "moduleRef": "whatsapp",
+            "property": "listenerGroup",
+            "value": "{group}",
+            "persist": true
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "{processing.result}"
+            }
+          ]
+        }
+      }
+    },
+    "start_mowing": {
+      "head": {
+        "name": "Start mowing",
+        "description": "Maehbetrieb starten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Start"
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "action",
+              "payload": "mower_logic:idle/start_mowing",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Start-Befehl wurde an OpenMower gesendet."
+            }
+          ]
+        }
+      }
+    },
+    "pause_mowing": {
+      "head": {
+        "name": "Pause mowing",
+        "description": "Laufenden Maehbetrieb pausieren.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Pause"
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "action",
+              "payload": "mower_logic:mowing/pause",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Pause-Befehl wurde an OpenMower gesendet."
+            }
+          ]
+        }
+      }
+    },
+    "stop_mowing": {
+      "head": {
+        "name": "Stop mowing",
+        "description": "Laufenden Maehbetrieb abbrechen oder stoppen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Stop"
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "action",
+              "payload": "mower_logic:mowing/abort_mowing",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Stop-Befehl wurde an OpenMower gesendet."
+            }
+          ]
+        }
+      }
+    },
+    "start_area": {
+      "head": {
+        "name": "Start area",
+        "description": "Bestimmte Flaeche starten und MQTT-Bestaetigung abwarten.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Start {area}"
+            },
+            "parameters": {
+              "area": {
+                "type": "integer",
+                "required": true,
+                "min": "1"
+              }
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "openmower/cmd/start_area",
+              "payload": "{\"area\":\"{area}\"}",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Start fuer Flaeche {area} wurde an MQTT gesendet."
+            }
+          ],
+          "nextStep": "wait_for_mqtt_confirmation"
+        },
+        "wait_for_mqtt_confirmation": {
+          "input": {
+            "module": "mqtt_watchdog",
+            "type": "confirmation",
+            "expect": {
+              "topic": "openmower/cmd/start_area/result",
+              "payloadNotEmpty": true
+            },
+            "timeoutSeconds": 10
+          },
+          "processing": {
+            "mode": "confirmation_result",
+            "successWhen": {
+              "default": true
+            },
+            "errorWhen": {
+              "payloadContains": "error"
+            }
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "result": "success",
+              "target": "{replyTarget}",
+              "message": "Start fuer Flaeche {area} bestaetigt: {payload}"
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "result": "timeout",
+              "target": "{replyTarget}",
+              "message": "Gesendet, aber keine MQTT-Bestaetigung erhalten."
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "result": "error",
+              "target": "{replyTarget}",
+              "message": "Start konnte nicht bestaetigt werden: {payload}"
+            }
+          ]
+        }
+      }
+    },
+    "schedule_on": {
+      "head": {
+        "name": "Schedule on",
+        "description": "Zeitplan aktivieren.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Zeitplan ein"
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "timetable/set/suspension/json",
+              "payload": "{\"AutoMowSuspension\":0}",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Zeitplan wurde aktiviert."
+            }
+          ]
+        }
+      }
+    },
+    "schedule_off": {
+      "head": {
+        "name": "Schedule off",
+        "description": "Zeitplan deaktivieren.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "whatsapp_watchdog",
+            "type": "command",
+            "expect": {
+              "command": "Zeitplan aus"
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "mqtt_output",
+              "type": "publish",
+              "topic": "timetable/set/suspension/json",
+              "payload": "{\"AutoMowSuspension\":\"9999-12-31T23:59:59Z\"}",
+              "qos": 1,
+              "retain": false
+            },
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "{replyTarget}",
+              "message": "Zeitplan wurde deaktiviert."
+            }
+          ]
+        }
+      }
+    },
+    "openmower_wifi_cache": {
+      "head": {
+        "name": "OpenMower WLAN cache",
+        "description": "Aktualisiert die WLAN-Staerke aus dem ROS-MQTT-System fuer Statusmeldungen.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "mqtt_watchdog",
+            "type": "topic",
+            "expect": {
+              "topic": "sensors/om_system_wifi_signal_percent/data",
+              "payloadNotEmpty": true
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          }
+        }
+      }
+    },
+    "openmower_undocking_notification": {
+      "head": {
+        "name": "OpenMower undocking notification",
+        "description": "Meldet einmalig per WhatsApp, wenn OpenMower in den Zustand UNDOCKING wechselt.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "mqtt_watchdog",
+            "type": "topic",
+            "expect": {
+              "topic": "robot_state/json",
+              "json": {
+                "fields": [
+                  {
+                    "name": "current_state",
+                    "equals": "UNDOCKING",
+                    "previousNotEquals": "UNDOCKING"
+                  },
+                  {
+                    "name": "emergency",
+                    "equals": "0"
+                  }
+                ]
+              }
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "default_group",
+              "message": "🚜 OpenMower dockt ab.\nZeit: {timestampLocal}\nStatus: {current_state}\nAkku: {batteryText}\nMQTT: {mqttConnection}"
+            }
+          ]
+        }
+      }
+    },
+    "openmower_docking_idle_notification": {
+      "head": {
+        "name": "OpenMower docking to idle notification",
+        "description": "Meldet einmalig per WhatsApp, wenn OpenMower von DOCKING nach IDLE wechselt und damit das Andocken abgeschlossen ist.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "mqtt_watchdog",
+            "type": "topic",
+            "expect": {
+              "topic": "robot_state/json",
+              "json": {
+                "fields": [
+                  {
+                    "name": "current_state",
+                    "equals": "IDLE",
+                    "previousEquals": "DOCKING"
+                  }
+                ]
+              }
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "default_group",
+              "message": "🔋 OpenMower ist angedockt, Laden beginnt.\nZeit: {timestampLocal}\nStatus: {current_state}\nAkku: {batteryText}\nMQTT: {mqttConnection}"
+            }
+          ]
+        }
+      }
+    },
+    "openmower_error_notification": {
+      "head": {
+        "name": "OpenMower error notification",
+        "description": "Meldet standardmaessig per WhatsApp, wenn ROS-MQTT einen OpenMower-Fehler bzw. Emergency meldet.",
+        "category": "general",
+        "enabled": true,
+        "show": true
+      },
+      "steps": {
+        "start": {
+          "input": {
+            "module": "mqtt_watchdog",
+            "type": "topic",
+            "expect": {
+              "topic": "robot_state/json",
+              "json": {
+                "fields": [
+                  {
+                    "name": "emergency",
+                    "equals": "1",
+                    "previousNotEquals": "1"
+                  }
+                ]
+              }
+            }
+          },
+          "processing": {
+            "mode": "passthrough"
+          },
+          "outputs": [
+            {
+              "module": "whatsapp_output",
+              "type": "send",
+              "target": "default_group",
+              "message": "⚠️ OpenMower Fehler/Emergency erkannt.\nZeit: {timestampLocal}\nStatus: {current_state}\nFläche: {areaText}\nAkku: {batteryText}\nWLAN: {wifi_percent}\nMQTT: {mqttConnection}\nFehler: {errorText}"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

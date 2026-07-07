@@ -16,7 +16,6 @@ import re
 import signal
 import threading
 import time
-import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -64,8 +63,8 @@ MQTT_BASE_TOPIC = os.getenv("MQTT_BASE_TOPIC", "messenger").strip("/")
 WAHA_URL = os.getenv("WAHA_URL", "http://waha:3000").rstrip("/")
 WAHA_API_KEY = os.getenv("WAHA_API_KEY", "")
 # Preferred WAHA session for sending/receiving.  Empty means: use the session
-# configured in bot_commands.xml; "default" is intentionally treated as
-# "not configured" for compatibility with older XML templates.
+# configured in bot_commands.json; "default" is intentionally treated as
+# "not configured" so the controller can auto-select the active WAHA session.
 WAHA_SESSION = (
     os.getenv("WAHA_SESSION")
     or os.getenv("WHATSAPP_SESSION")
@@ -103,8 +102,8 @@ BOT_HTTP_PORT = int(os.getenv("BOT_HTTP_PORT", "8080"))
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 CONFIG_FILE = DATA_DIR / "config.json"
-BOT_COMMANDS_FILE = Path(os.getenv("BOT_COMMANDS_FILE", str(DATA_DIR / "bot_commands.xml")))
-DEFAULT_BOT_COMMANDS_FILE = Path(os.getenv("DEFAULT_BOT_COMMANDS_FILE", "/app/bot_commands.example.xml"))
+BOT_COMMANDS_FILE = Path(os.getenv("BOT_COMMANDS_FILE", str(DATA_DIR / "bot_commands.json")))
+DEFAULT_BOT_COMMANDS_FILE = Path(os.getenv("DEFAULT_BOT_COMMANDS_FILE", "/app/bot_commands.example.json"))
 
 RUNNING = True
 MQTT_CLIENT: Optional[mqtt.Client] = None
@@ -242,7 +241,7 @@ def default_config() -> Dict[str, Any]:
         },
         "bot": {
             "enabled": True,
-            # Empty means: use the wakeWord defined by the XML whatsapp_watchdog module.
+            # Empty means: use the wakeWord defined by the JSON whatsapp_watchdog module.
             "wake_word": "",
             # listen_group is configured by MQTT, e.g. g001.
             # The controller resolves g001 to the internal WhatsApp group chatId.
@@ -976,118 +975,21 @@ def group_alias_from_chat_id(chat_id: str) -> str:
     return GROUP_KEYS_BY_CHAT_ID.get(chat_id, "")
 
 
+
 # ---------------------------------------------------------------------------
-# Bot flow XML module
+# OpenMower status cache configuration
 # ---------------------------------------------------------------------------
 
-# The controller supports two XML dialects for compatibility:
-# 1. Legacy <mobertCommands> command files.
-# 2. New <mobertBotConfig> flow files with modules, head, input,
-#    processing and output blocks.
-#
-# Internally both dialects are exposed as BotCommand entries so the public MQTT
-# command status topics remain stable.  New flow files additionally populate
-# BOT_MODULES and BOT_FLOWS and are executed by the small flow engine below.
-
-@dataclass
-class BotCommand:
-    command_id: str
-    enabled: bool
-    category: str
-    trigger: str
-    example: str
-    description: str
-    action_type: str
-    name: str = ""
-    response: str = ""
-    response_template: str = ""
-    mqtt_topic: str = ""
-    mqtt_payload: str = ""
-    mqtt_qos: int = 0
-    mqtt_retain: bool = False
-    immediate_confirmation: str = ""
-    parameters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    wait_confirmation: Dict[str, Any] = field(default_factory=dict)
-    flow_id: str = ""
-    step_id: str = "start"
-    _regex: Optional[re.Pattern[str]] = field(default=None, repr=False)
-
-    def to_json(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
-            "id": self.command_id,
-            "enabled": self.enabled,
-            "category": self.category,
-            "name": self.name,
-            "trigger": self.trigger,
-            "example": self.example,
-            "description": self.description,
-            "action_type": self.action_type,
-        }
-        if self.flow_id:
-            data["flow"] = {"id": self.flow_id, "step": self.step_id}
-        if self.parameters:
-            data["parameters"] = self.parameters
-        if self.mqtt_topic:
-            data["mqtt"] = {"topic": self.mqtt_topic, "payload": self.mqtt_payload, "qos": self.mqtt_qos, "retain": self.mqtt_retain}
-        if self.wait_confirmation:
-            data["wait_confirmation"] = self.wait_confirmation
-        return data
-
-
-BOT_MODULES: Dict[str, Dict[str, Any]] = {}
-BOT_FLOWS: Dict[str, Dict[str, Any]] = {}
-BOT_CONFIG_ENABLED = True
-PENDING_CONFIRMATIONS: List[Dict[str, Any]] = []
-PENDING_CONFIRMATIONS_LOCK = threading.Lock()
-
-# Latest external MQTT values collected by the mqtt_watchdog.  These values are
-# intentionally small and retained in memory only; they are used for WhatsApp
-# status texts and for transition matching in flow XML conditions.
-OPENMOWER_STATE: Dict[str, Any] = {
-    "robot_state": {},
-    "robot_state_previous": {},
-    "robot_state_time": "",
-    "gps_state": {},
-    "gps_state_previous": {},
-    "gps_state_time": "",
-    "gps_position": {},
-    "gps_position_time": "",
-    # MowArea cache stores the latest area queue / path plan payload.  The
-    # compact status uses it to translate area IDs to human-readable area
-    # names.  Live percent values are stored separately in mowing_progress.
-    "mow_area": {},
-    "mow_area_previous": {},
-    "mow_area_time": "",
-    # map/mowing_progress/status/json stores live area progress from the Web-App
-    # style status payload.  It is kept separate from the area queue/plan cache
-    # so a progress-only payload cannot overwrite the human-readable area names.
-    "mowing_progress": {},
-    "mowing_progress_previous": {},
-    "mowing_progress_time": "",
-    "wifi_percent": "unbekannt",
-    "wifi_time": "",
-    "last_mqtt_topic": "",
-    "last_mqtt_payload": "",
-    "last_mqtt_time": "",
-}
-GPS_LOSS_ALERT_ACTIVE = False
-MQTT_TOPIC_CACHE: Dict[str, Dict[str, Any]] = {}
-OPENMOWER_STATE_LOCK = threading.Lock()
-OPENMOWER_STATE_UPDATED = threading.Condition(OPENMOWER_STATE_LOCK)
-
-# Status requests wait only briefly for fresh ROS-MQTT data.  This avoids
-# "unbekannt" values when the command arrives shortly before the next
-# robot_state/json, mowing-progress or WLAN sample, but it still replies quickly
-# if ROS-MQTT is quiet.
+# Commands such as "Mobert: Status" wait briefly for fresh ROS-MQTT samples.
+# If ROS-MQTT is quiet, the reply uses the latest cached values.
 STATUS_FRESH_WAIT_SECONDS = float(os.getenv("STATUS_FRESH_WAIT_SECONDS", "3"))
 STATUS_TIMEZONE = os.getenv("STATUS_TIMEZONE", "Europe/Berlin").strip() or "Europe/Berlin"
 
-# Status cache topics are subscribed independently from the XML flows.  This is
-# important for installations that still use the legacy bot_commands.xml format:
-# legacy XML can answer "Mobert: Status", but it does not define mqtt_watchdog
-# flow subscriptions.  The defaults intentionally subscribe only to text/JSON
+# Status cache topics are subscribed independently from JSON flow edits. This
+# keeps status replies robust even if an installation disables or edits
+# mqtt_watchdog flows.  The defaults intentionally subscribe only to text/JSON
 # status topics.  Do not subscribe the WiFi cache to the parent # wildcard by
-# default because OpenMower also publishes a binary bson sibling there.
+# default because OpenMower can also publish a binary bson sibling there.
 DEFAULT_STATUS_CACHE_TOPICS = [
     "robot_state/json",
     "gps_state/json",
@@ -1095,8 +997,7 @@ DEFAULT_STATUS_CACHE_TOPICS = [
     # published here when the OpenMower MQTT interface provides them.
     "gps/position/json",
     "gps_position/json",
-    # MowArea / Web-App style area plan sources.  If an installation publishes
-    # the area queue elsewhere, add it through OPENMOWER_STATUS_CACHE_TOPICS.
+    # MowArea / Web-App style area plan and progress sources.
     "area_queue/json",
     "mow_area/json",
     "mow_area/status/json",
@@ -1127,8 +1028,8 @@ def configured_status_cache_topics() -> List[str]:
         items = [item.strip().strip("/") for item in raw.split(",") if item.strip()]
     else:
         items = list(DEFAULT_STATUS_CACHE_TOPICS)
-    # Keep required status/GPS cache sources even if an older .env still defines
-    # OPENMOWER_STATUS_CACHE_TOPICS without the newer GPS placeholders.
+    # Keep required status/GPS/progress cache sources even if an older .env
+    # still defines OPENMOWER_STATUS_CACHE_TOPICS without newer sources.
     for default_topic in DEFAULT_STATUS_CACHE_TOPICS:
         if default_topic not in items:
             items.append(default_topic)
@@ -1146,6 +1047,69 @@ def subscribe_status_cache_topics(client: mqtt.Client) -> None:
         client.subscribe(pattern)
         log(f"Subscribed OpenMower status cache topic: {pattern}")
 
+# ---------------------------------------------------------------------------
+# Bot flow JSON module
+# ---------------------------------------------------------------------------
+
+# Mobert command and flow configuration is JSON-only.  The file
+# /data/bot_commands.json is the single source of truth for modules, flows,
+# WhatsApp commands, MQTT watchdog subscriptions and generated help metadata.
+# Previous XML loading and mobertCommands support were intentionally removed so
+# external apps can edit one clear JSON structure without format ambiguity.
+
+@dataclass
+class BotCommand:
+    command_id: str
+    enabled: bool
+    category: str
+    trigger: str
+    example: str
+    description: str
+    action_type: str
+    name: str = ""
+    show: bool = True
+    response: str = ""
+    response_template: str = ""
+    mqtt_topic: str = ""
+    mqtt_payload: str = ""
+    mqtt_qos: int = 0
+    mqtt_retain: bool = False
+    immediate_confirmation: str = ""
+    parameters: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    wait_confirmation: Dict[str, Any] = field(default_factory=dict)
+    flow_id: str = ""
+    step_id: str = "start"
+    _regex: Optional[re.Pattern[str]] = field(default=None, repr=False)
+
+    def to_json(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "id": self.command_id,
+            "enabled": self.enabled,
+            "show": self.show,
+            "category": self.category,
+            "name": self.name,
+            "trigger": self.trigger,
+            "example": self.example,
+            "description": self.description,
+            "action_type": self.action_type,
+        }
+        if self.flow_id:
+            data["flow"] = {"id": self.flow_id, "step": self.step_id}
+        if self.parameters:
+            data["parameters"] = self.parameters
+        if self.mqtt_topic:
+            data["mqtt"] = {"topic": self.mqtt_topic, "payload": self.mqtt_payload, "qos": self.mqtt_qos, "retain": self.mqtt_retain}
+        if self.wait_confirmation:
+            data["wait_confirmation"] = self.wait_confirmation
+        return data
+
+
+BOT_MODULES: Dict[str, Dict[str, Any]] = {}
+BOT_FLOWS: Dict[str, Dict[str, Any]] = {}
+BOT_CONFIG_ENABLED = True
+PENDING_CONFIRMATIONS: List[Dict[str, Any]] = []
+PENDING_CONFIRMATIONS_LOCK = threading.Lock()
+
 
 def ensure_default_bot_commands_file() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1154,78 +1118,217 @@ def ensure_default_bot_commands_file() -> None:
     if DEFAULT_BOT_COMMANDS_FILE.exists():
         BOT_COMMANDS_FILE.write_text(DEFAULT_BOT_COMMANDS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
     else:
-        BOT_COMMANDS_FILE.write_text(default_bot_commands_xml(), encoding="utf-8")
+        BOT_COMMANDS_FILE.write_text(json.dumps(default_bot_commands_json(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def default_bot_commands_xml() -> str:
+def default_bot_commands_json() -> Dict[str, Any]:
     if DEFAULT_BOT_COMMANDS_FILE.exists():
-        return DEFAULT_BOT_COMMANDS_FILE.read_text(encoding="utf-8")
-    return """<?xml version="1.0" encoding="UTF-8"?>
-<mobertBotConfig version="0.4" language="de">
+        return json.loads(DEFAULT_BOT_COMMANDS_FILE.read_text(encoding="utf-8"))
+    return {
+        "format": "mobertBotConfig",
+        "version": "0.5",
+        "language": "de",
+        "head": {
+            "name": "Mobert OpenMower Flow Configuration",
+            "description": "Fallback-Konfiguration mit zentralem WhatsApp-Modul.",
+            "enabled": True,
+        },
+        "modules": {
+            "whatsapp": {
+                "kind": "whatsappModule",
+                "enabled": True,
+                "session": "default",
+                "defaultGroup": "g014",
+                "listenerGroup": "g014",
+                "wakeWord": {
+                    "text": "Mobert",
+                    "required": True,
+                    "syntax": "colon",
+                    "caseSensitive": False,
+                },
+            },
+            "whatsapp_watchdog": {"kind": "inputModule", "enabled": True, "moduleRef": "whatsapp"},
+            "whatsapp_output": {"kind": "outputModule", "enabled": True, "moduleRef": "whatsapp"},
+            "mqtt_watchdog": {"kind": "inputModule", "enabled": True, "subscribeMode": "enabled_flows"},
+            "mqtt_output": {"kind": "outputModule", "enabled": True},
+        },
+        "flows": {},
+    }
 
-  <head>
-    <name>Mobert OpenMower Flow Configuration</name>
-    <description>Fallback-Konfiguration mit zentralem WhatsApp-Modul.</description>
-    <enabled>true</enabled>
-  </head>
 
-  <modules>
-    <whatsappModule id="whatsapp">
-      <enabled>true</enabled>
-      <session>
-        <default>default</default>
-      </session>
-      <groups>
-        <defaultGroup>g014</defaultGroup>
-        <listenerGroup>g014</listenerGroup>
-      </groups>
-      <wakeWord>
-        <text>Mobert</text>
-        <required>true</required>
-        <syntax>colon</syntax>
-        <caseSensitive>false</caseSensitive>
-      </wakeWord>
-    </whatsappModule>
-    <inputModule id="whatsapp_watchdog">
-      <enabled>true</enabled>
-      <moduleRef>whatsapp</moduleRef>
-    </inputModule>
-    <outputModule id="whatsapp_output">
-      <enabled>true</enabled>
-      <moduleRef>whatsapp</moduleRef>
-    </outputModule>
-    <inputModule id="mqtt_watchdog">
-      <enabled>true</enabled>
-      <subscribeMode>enabled_flows</subscribeMode>
-    </inputModule>
-    <outputModule id="mqtt_output">
-      <enabled>true</enabled>
-    </outputModule>
-  </modules>
-
-  <flows />
-
-</mobertBotConfig>
-"""
-
-def xml_child_text(element: Optional[ET.Element], path: str, default: str = "") -> str:
-    if element is None:
+def normalized_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
         return default
-    child = element.find(path)
-    if child is None or child.text is None:
-        return default
-    return child.text.strip()
+    return as_bool(value)
 
 
-def xml_enabled(element: Optional[ET.Element], default: bool = True) -> bool:
-    if element is None:
-        return default
-    if "enabled" in element.attrib:
-        return as_bool(element.attrib.get("enabled"))
-    enabled_text = xml_child_text(element, "enabled", "")
-    if enabled_text != "":
-        return as_bool(enabled_text)
-    return default
+def dict_from_list_or_map(value: Any, id_key: str = "id") -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        result: Dict[str, Any] = {}
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get(id_key) or "").strip()
+            if item_id:
+                result[item_id] = item
+        return result
+    return {}
+
+
+def normalize_parameters(raw: Any) -> Dict[str, Dict[str, Any]]:
+    params: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw, dict):
+        iterator = raw.items()
+    elif isinstance(raw, list):
+        iterator = [(str(item.get("name") or ""), item) for item in raw if isinstance(item, dict)]
+    else:
+        return params
+    for name, cfg in iterator:
+        name = str(name or "").strip()
+        if not name or not isinstance(cfg, dict):
+            continue
+        params[name] = {
+            "type": str(cfg.get("type") or "string"),
+            "required": normalized_bool(cfg.get("required"), True),
+            "min": cfg.get("min"),
+            "max": cfg.get("max"),
+        }
+    return params
+
+
+def normalize_json_conditions(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        raw_items = raw.get("fields") or raw.get("field") or []
+    else:
+        raw_items = raw or []
+    if isinstance(raw_items, dict):
+        raw_items = [dict({"name": key}, **value) if isinstance(value, dict) else {"name": key, "equals": value} for key, value in raw_items.items()]
+    conditions: List[Dict[str, Any]] = []
+    for item in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        conditions.append({
+            "name": name,
+            "equals": item.get("equals"),
+            "not_equals": item.get("not_equals", item.get("notEquals")),
+            "previous_equals": item.get("previous_equals", item.get("previousEquals")),
+            "previous_not_equals": item.get("previous_not_equals", item.get("previousNotEquals")),
+            "previous_exists": normalized_bool(item.get("previous_exists", item.get("previousExists")), False),
+            "exists": normalized_bool(item.get("exists"), False),
+        })
+    return conditions
+
+
+def normalize_input(raw: Any) -> Dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    expect = cfg.get("expect") if isinstance(cfg.get("expect"), dict) else {}
+    return {
+        "module": str(cfg.get("module") or ""),
+        "type": str(cfg.get("type") or ""),
+        "timeout_seconds": int(cfg.get("timeout_seconds", cfg.get("timeoutSeconds", 0)) or 0),
+        "command": str(expect.get("command", cfg.get("command", "")) or ""),
+        "topic": str(expect.get("topic", cfg.get("topic", "")) or ""),
+        "payload_equals": str(expect.get("payload_equals", expect.get("payloadEquals", cfg.get("payload_equals", cfg.get("payloadEquals", "")))) or ""),
+        "payload_not_empty": normalized_bool(expect.get("payload_not_empty", expect.get("payloadNotEmpty", cfg.get("payload_not_empty", cfg.get("payloadNotEmpty")))), False),
+        "json_conditions": normalize_json_conditions(expect.get("json", cfg.get("json_conditions", cfg.get("json")))),
+        "parameters": normalize_parameters(cfg.get("parameters")),
+    }
+
+
+def normalize_processing(raw: Any) -> Dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    success_when = cfg.get("successWhen") if isinstance(cfg.get("successWhen"), dict) else cfg.get("success_when") if isinstance(cfg.get("success_when"), dict) else {}
+    error_when = cfg.get("errorWhen") if isinstance(cfg.get("errorWhen"), dict) else cfg.get("error_when") if isinstance(cfg.get("error_when"), dict) else {}
+    return {
+        "mode": str(cfg.get("mode") or "passthrough"),
+        "template": str(cfg.get("template") or ""),
+        "response_template": str(cfg.get("response_template", cfg.get("responseTemplate", "")) or ""),
+        "module_ref": str(cfg.get("module_ref", cfg.get("moduleRef", "")) or ""),
+        "property": str(cfg.get("property") or ""),
+        "value": str(cfg.get("value") or ""),
+        "persist": normalized_bool(cfg.get("persist"), False),
+        "success_default": normalized_bool(success_when.get("default", cfg.get("success_default")), True),
+        "error_payload_contains": str(error_when.get("payloadContains", error_when.get("payload_contains", cfg.get("error_payload_contains", ""))) or ""),
+    }
+
+
+def normalize_output(raw: Any) -> Dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    return {
+        "module": str(cfg.get("module") or ""),
+        "type": str(cfg.get("type") or "send"),
+        "result": str(cfg.get("result") or ""),
+        "target": str(cfg.get("target") or ""),
+        "message": str(cfg.get("message") or ""),
+        "topic": str(cfg.get("topic") or ""),
+        "payload": str(cfg.get("payload") or ""),
+        "qos": int(cfg.get("qos", 0) or 0),
+        "retain": normalized_bool(cfg.get("retain"), False),
+    }
+
+
+def normalize_step(step_id: str, raw: Any) -> Dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    raw_outputs = cfg.get("outputs", cfg.get("output", []))
+    if isinstance(raw_outputs, dict):
+        raw_outputs = [raw_outputs]
+    return {
+        "id": str(cfg.get("id") or step_id or "start"),
+        "input": normalize_input(cfg.get("input")),
+        "processing": normalize_processing(cfg.get("processing")),
+        "outputs": [normalize_output(item) for item in raw_outputs if isinstance(item, dict)],
+        "next_step": str(cfg.get("next_step", cfg.get("nextStep", "")) or ""),
+    }
+
+
+def normalize_module_settings(module_id: str, raw: Any) -> Dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    session = cfg.get("session", "")
+    if isinstance(session, dict):
+        session = session.get("default", "")
+    groups = cfg.get("groups") if isinstance(cfg.get("groups"), dict) else {}
+    return {
+        "kind": str(cfg.get("kind") or cfg.get("type") or "module"),
+        "enabled": normalized_bool(cfg.get("enabled"), True),
+        "moduleRef": str(cfg.get("moduleRef", cfg.get("module_ref", "")) or ""),
+        "session": str(session or ""),
+        "listenerGroup": str(cfg.get("listenerGroup", cfg.get("listener_group", groups.get("listenerGroup", groups.get("listener_group", "")))) or ""),
+        "defaultGroup": str(cfg.get("defaultGroup", cfg.get("default_group", groups.get("defaultGroup", groups.get("default_group", "")))) or ""),
+        "subscribeMode": str(cfg.get("subscribeMode", cfg.get("subscribe_mode", "")) or ""),
+        "wakeWord": cfg.get("wakeWord", cfg.get("wake_word", {})) if isinstance(cfg.get("wakeWord", cfg.get("wake_word", {})), dict) else {},
+    }
+
+
+def parse_modules(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    raw_modules = {module_id: normalize_module_settings(module_id, module_cfg) for module_id, module_cfg in dict_from_list_or_map(data.get("modules")).items()}
+    modules: Dict[str, Dict[str, Any]] = {}
+    for module_id, settings in raw_modules.items():
+        module_ref = str(settings.get("moduleRef") or "").strip()
+        if module_ref and module_ref in raw_modules:
+            parent = dict(raw_modules[module_ref])
+            parent_enabled = as_bool(parent.get("enabled", True))
+            child_enabled = as_bool(settings.get("enabled", True))
+            # Child settings override parent values only when explicitly present.
+            # Empty strings inherit from the referenced module.
+            merged = parent
+            for key, value in settings.items():
+                if key in {"session", "listenerGroup", "defaultGroup", "subscribeMode"} and value == "":
+                    continue
+                if key == "wakeWord" and not value:
+                    continue
+                merged[key] = value
+            merged["enabled"] = parent_enabled and child_enabled
+            merged["moduleRef"] = module_ref
+            merged["referencedEnabled"] = parent_enabled
+            modules[module_id] = merged
+        else:
+            modules[module_id] = settings
+    return modules
 
 
 def compile_trigger_regex(trigger: str, parameters: Dict[str, Dict[str, Any]]) -> re.Pattern[str]:
@@ -1245,163 +1348,6 @@ def compile_trigger_regex(trigger: str, parameters: Dict[str, Dict[str, Any]]) -
     return re.compile(regex, re.IGNORECASE)
 
 
-def parse_parameters(parent: Optional[ET.Element]) -> Dict[str, Dict[str, Any]]:
-    params: Dict[str, Dict[str, Any]] = {}
-    if parent is None:
-        return params
-    for param in parent.findall("parameters/parameter"):
-        name = param.attrib.get("name", "").strip()
-        if name:
-            params[name] = {
-                "type": param.attrib.get("type", "string"),
-                "required": as_bool(param.attrib.get("required", "true")),
-                "min": param.attrib.get("min"),
-                "max": param.attrib.get("max"),
-            }
-    return params
-
-
-def parse_output_node(node: ET.Element) -> Dict[str, Any]:
-    return {
-        "module": node.attrib.get("module", "").strip(),
-        "type": node.attrib.get("type", "send").strip(),
-        "result": node.attrib.get("result", "").strip(),
-        "target": xml_child_text(node, "target"),
-        "message": xml_child_text(node, "message"),
-        "topic": xml_child_text(node, "topic"),
-        "payload": xml_child_text(node, "payload"),
-        "qos": int(xml_child_text(node, "qos", "0") or 0),
-        "retain": as_bool(xml_child_text(node, "retain", "false")),
-    }
-
-
-def parse_json_conditions(expect: Optional[ET.Element]) -> List[Dict[str, Any]]:
-    conditions: List[Dict[str, Any]] = []
-    if expect is None:
-        return conditions
-    for field_node in expect.findall("json/field"):
-        name = field_node.attrib.get("name", "").strip()
-        if not name:
-            continue
-        conditions.append({
-            "name": name,
-            "equals": field_node.attrib.get("equals"),
-            "not_equals": field_node.attrib.get("notEquals"),
-            "previous_equals": field_node.attrib.get("previousEquals"),
-            "previous_not_equals": field_node.attrib.get("previousNotEquals"),
-            "previous_exists": as_bool(field_node.attrib.get("previousExists", "false")),
-            "exists": as_bool(field_node.attrib.get("exists", "false")),
-        })
-    return conditions
-
-
-def parse_step(node: ET.Element) -> Dict[str, Any]:
-    input_node = node.find("input")
-    expect = input_node.find("expect") if input_node is not None else None
-    processing_node = node.find("processing")
-    processing: Dict[str, Any] = {
-        "mode": processing_node.attrib.get("mode", "passthrough") if processing_node is not None else "passthrough",
-        "template": xml_child_text(processing_node, "template"),
-        "response_template": xml_child_text(processing_node, "responseTemplate"),
-        "module_ref": xml_child_text(processing_node, "moduleRef"),
-        "property": xml_child_text(processing_node, "property"),
-        "value": xml_child_text(processing_node, "value"),
-        "persist": as_bool(xml_child_text(processing_node, "persist", "false")),
-        "success_default": as_bool(xml_child_text(processing_node, "successWhen/default", "true")),
-        "error_payload_contains": xml_child_text(processing_node, "errorWhen/payloadContains"),
-    }
-    step = {
-        "id": node.attrib.get("id", "start"),
-        "input": {
-            "module": input_node.attrib.get("module", "") if input_node is not None else "",
-            "type": input_node.attrib.get("type", "") if input_node is not None else "",
-            "timeout_seconds": int(xml_child_text(input_node, "timeoutSeconds", "0") or 0),
-            "command": xml_child_text(expect, "command"),
-            "topic": xml_child_text(expect, "topic"),
-            "payload_equals": xml_child_text(expect, "payloadEquals"),
-            "payload_not_empty": as_bool(xml_child_text(expect, "payloadNotEmpty", "false")),
-            "json_conditions": parse_json_conditions(expect),
-            "parameters": parse_parameters(input_node),
-        },
-        "processing": processing,
-        "outputs": [parse_output_node(out) for out in node.findall("output")],
-        "next_step": xml_child_text(node, "nextStep"),
-    }
-    return step
-
-
-def parse_wake_word(node: Optional[ET.Element]) -> Dict[str, Any]:
-    if node is None:
-        return {}
-    return {
-        "text": xml_child_text(node, "text", "Mobert"),
-        "required": as_bool(xml_child_text(node, "required", "true")),
-        "syntax": xml_child_text(node, "syntax", "colon"),
-        "caseSensitive": as_bool(xml_child_text(node, "caseSensitive", "false")),
-    }
-
-
-def parse_module_settings(node: ET.Element) -> Dict[str, Any]:
-    settings: Dict[str, Any] = {
-        "kind": node.tag,
-        "enabled": xml_enabled(node, True),
-        "moduleRef": xml_child_text(node, "moduleRef"),
-        "session": xml_child_text(node, "session"),
-        "listenerGroup": xml_child_text(node, "listenerGroup"),
-        "defaultGroup": xml_child_text(node, "defaultGroup"),
-        "subscribeMode": xml_child_text(node, "subscribeMode"),
-    }
-
-    # WhatsApp-specific grouped module.  This is the central place for the
-    # shared session, group routing and wake word used by whatsapp_watchdog and
-    # whatsapp_output via <moduleRef>whatsapp</moduleRef>.
-    session_default = xml_child_text(node, "session/default")
-    if session_default:
-        settings["session"] = session_default
-    group_listener = xml_child_text(node, "groups/listenerGroup")
-    if group_listener:
-        settings["listenerGroup"] = group_listener
-    group_default = xml_child_text(node, "groups/defaultGroup")
-    if group_default:
-        settings["defaultGroup"] = group_default
-
-    wake = parse_wake_word(node.find("wakeWord"))
-    if wake:
-        settings["wakeWord"] = wake
-    return settings
-
-
-def parse_modules(root: ET.Element) -> Dict[str, Dict[str, Any]]:
-    raw_modules: Dict[str, Dict[str, Any]] = {}
-    for node in root.findall("modules/whatsappModule") + root.findall("modules/inputModule") + root.findall("modules/outputModule"):
-        module_id = node.attrib.get("id", "").strip()
-        if not module_id:
-            continue
-        raw_modules[module_id] = parse_module_settings(node)
-
-    modules: Dict[str, Dict[str, Any]] = {}
-    for module_id, settings in raw_modules.items():
-        module_ref = str(settings.get("moduleRef") or "").strip()
-        if module_ref and module_ref in raw_modules:
-            parent = dict(raw_modules[module_ref])
-            parent_enabled = as_bool(parent.get("enabled", True))
-            child_enabled = as_bool(settings.get("enabled", True))
-            # Child settings override parent values only when they are explicitly
-            # present.  Empty values inherit from the referenced module.
-            merged = parent
-            for key, value in settings.items():
-                if key in {"session", "listenerGroup", "defaultGroup", "subscribeMode"} and value == "":
-                    continue
-                merged[key] = value
-            merged["enabled"] = parent_enabled and child_enabled
-            merged["moduleRef"] = module_ref
-            merged["referencedEnabled"] = parent_enabled
-            modules[module_id] = merged
-        else:
-            modules[module_id] = settings
-    return modules
-
-
 def make_flow_command(flow: Dict[str, Any], step: Dict[str, Any]) -> Optional[BotCommand]:
     input_cfg = step.get("input", {})
     if input_cfg.get("module") != "whatsapp_watchdog" or input_cfg.get("type") != "command":
@@ -1413,6 +1359,7 @@ def make_flow_command(flow: Dict[str, Any], step: Dict[str, Any]) -> Optional[Bo
     command = BotCommand(
         command_id=flow["id"],
         enabled=as_bool(flow.get("enabled", True)),
+        show=as_bool(flow.get("show", True)),
         category=flow.get("category", "general"),
         name=flow.get("name", ""),
         trigger=trigger,
@@ -1427,117 +1374,67 @@ def make_flow_command(flow: Dict[str, Any], step: Dict[str, Any]) -> Optional[Bo
     return command
 
 
-def load_flow_bot_config(raw_xml: str, root: ET.Element) -> Tuple[Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    version = root.attrib.get("version", "")
-    language = root.attrib.get("language", "de")
-    head = root.find("head")
-    modules = parse_modules(root)
+def load_flow_bot_config(raw_json: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    version = str(data.get("version") or "")
+    language = str(data.get("language") or "de")
+    head = data.get("head") if isinstance(data.get("head"), dict) else {}
+    modules = parse_modules(data)
     flows: Dict[str, Dict[str, Any]] = {}
     commands: List[BotCommand] = []
-    root_enabled = xml_enabled(head, True)
-    for flow_node in root.findall("flows/flow"):
-        flow_id = flow_node.attrib.get("id", "").strip()
+    root_enabled = normalized_bool(head.get("enabled"), True)
+    for flow_id, raw_flow in dict_from_list_or_map(data.get("flows")).items():
+        if not isinstance(raw_flow, dict):
+            continue
+        flow_id = str(raw_flow.get("id") or flow_id).strip()
         if not flow_id:
             continue
-        flow_head = flow_node.find("head")
-        steps: Dict[str, Dict[str, Any]] = {}
+        flow_head = raw_flow.get("head") if isinstance(raw_flow.get("head"), dict) else {}
+        raw_steps = dict_from_list_or_map(raw_flow.get("steps", raw_flow.get("step", {})))
+        steps = {step_id: normalize_step(step_id, step_cfg) for step_id, step_cfg in raw_steps.items()}
+        enabled_value = flow_head.get("enabled", raw_flow.get("enabled"))
+        show_value = flow_head.get("show", raw_flow.get("show"))
         flow = {
             "id": flow_id,
-            "name": xml_child_text(flow_head, "name", flow_id),
-            "description": xml_child_text(flow_head, "description"),
-            "category": xml_child_text(flow_head, "category", "general"),
-            "enabled": root_enabled and xml_enabled(flow_head, True),
+            "name": str(flow_head.get("name", raw_flow.get("name", flow_id)) or flow_id),
+            "description": str(flow_head.get("description", raw_flow.get("description", "")) or ""),
+            "category": str(flow_head.get("category", raw_flow.get("category", "general")) or "general"),
+            "enabled": root_enabled and normalized_bool(enabled_value, True),
+            "show": normalized_bool(show_value, True),
             "steps": steps,
         }
-        for step_node in flow_node.findall("step"):
-            step = parse_step(step_node)
-            steps[step["id"]] = step
         flows[flow_id] = flow
         for step in steps.values():
             command = make_flow_command(flow, step)
             if command is not None:
                 commands.append(command)
     meta = {
-        "format": "flow",
+        "format": "json-flow",
         "version": version,
         "language": language,
-        "name": xml_child_text(head, "name"),
-        "description": xml_child_text(head, "description"),
+        "name": str(head.get("name") or ""),
+        "description": str(head.get("description") or ""),
         "enabled": root_enabled,
         "source": str(BOT_COMMANDS_FILE),
         "modules": list(modules.keys()),
         "flows": len(flows),
     }
-    return meta, commands, {"valid": True, "error": "", "format": "flow"}, modules, flows
-
-
-def load_legacy_bot_commands(raw_xml: str, root: ET.Element) -> Tuple[Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    version = root.attrib.get("version", "")
-    language = root.attrib.get("language", "de")
-    meta = {
-        "format": "legacy",
-        "version": version,
-        "language": language,
-        "name": xml_child_text(root, "meta/name"),
-        "description": xml_child_text(root, "meta/description"),
-        "source": str(BOT_COMMANDS_FILE),
-    }
-    commands: List[BotCommand] = []
-    for node in root.findall("command"):
-        params = parse_parameters(node)
-        action = node.find("action")
-        action_type = action.attrib.get("type", "local_reply") if action is not None else "local_reply"
-        mqtt_publish = action.find("mqttPublish") if action is not None else None
-        wait_node = action.find("waitForMqttConfirmation") if action is not None else None
-        wait_confirmation: Dict[str, Any] = {}
-        if wait_node is not None:
-            wait_confirmation = {
-                "enabled": as_bool(wait_node.attrib.get("enabled", "false")),
-                "timeout_seconds": int(wait_node.attrib.get("timeoutSeconds", "0") or 0),
-                "topic": xml_child_text(wait_node, "topic"),
-                "success_response": xml_child_text(wait_node, "successResponse"),
-                "timeout_response": xml_child_text(wait_node, "timeoutResponse"),
-                "error_response": xml_child_text(wait_node, "errorResponse"),
-            }
-        command = BotCommand(
-            command_id=node.attrib.get("id", "").strip(),
-            enabled=as_bool(node.attrib.get("enabled", "true")),
-            category=node.attrib.get("category", "general"),
-            name=xml_child_text(node, "name"),
-            trigger=xml_child_text(node, "trigger"),
-            example=xml_child_text(node, "example"),
-            description=xml_child_text(node, "description"),
-            action_type=action_type,
-            response=xml_child_text(action, "response") if action is not None else "",
-            response_template=xml_child_text(action, "responseTemplate") if action is not None else "",
-            mqtt_topic=mqtt_publish.attrib.get("topic", "") if mqtt_publish is not None else "",
-            mqtt_payload=xml_child_text(mqtt_publish, "payload") if mqtt_publish is not None else "",
-            mqtt_qos=int(mqtt_publish.attrib.get("qos", "0") or 0) if mqtt_publish is not None else 0,
-            mqtt_retain=as_bool(mqtt_publish.attrib.get("retain", "false")) if mqtt_publish is not None else False,
-            immediate_confirmation=xml_child_text(action, "immediateConfirmation") if action is not None else "",
-            parameters=params,
-            wait_confirmation=wait_confirmation,
-        )
-        command._regex = compile_trigger_regex(command.trigger, command.parameters)
-        if command.command_id and command.trigger:
-            commands.append(command)
-    return meta, commands, {"valid": True, "error": "", "format": "legacy"}, {}, {}
+    return meta, commands, {"valid": True, "error": "", "format": "json-flow"}, modules, flows
 
 
 def load_bot_commands() -> Tuple[str, Dict[str, Any], List[BotCommand], Dict[str, Any], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     ensure_default_bot_commands_file()
-    raw_xml = BOT_COMMANDS_FILE.read_text(encoding="utf-8")
-    root = ET.fromstring(raw_xml)
-    if root.tag == "mobertBotConfig":
-        meta, commands, validation, modules, flows = load_flow_bot_config(raw_xml, root)
-    elif root.tag == "mobertCommands":
-        meta, commands, validation, modules, flows = load_legacy_bot_commands(raw_xml, root)
-    else:
-        raise RuntimeError(f"Unsupported bot XML root element: {root.tag}")
-    return raw_xml, meta, commands, validation, modules, flows
+    raw_json = BOT_COMMANDS_FILE.read_text(encoding="utf-8")
+    data = json.loads(raw_json)
+    if not isinstance(data, dict):
+        raise RuntimeError("Bot command configuration must be a JSON object")
+    if str(data.get("format") or "mobertBotConfig") != "mobertBotConfig":
+        raise RuntimeError(f"Unsupported bot JSON format: {data.get('format')}")
+    meta, commands, validation, modules, flows = load_flow_bot_config(raw_json, data)
+    normalized_json = json.dumps(data, ensure_ascii=False, indent=2)
+    return normalized_json, meta, commands, validation, modules, flows
 
 
-BOT_COMMANDS_XML = ""
+BOT_COMMANDS_JSON = ""
 BOT_COMMANDS_META: Dict[str, Any] = {}
 BOT_COMMANDS: List[BotCommand] = []
 BOT_COMMANDS_VALIDATION: Dict[str, Any] = {"valid": False, "error": "not loaded"}
@@ -1546,20 +1443,20 @@ BOT_HELP_JSON: Dict[str, Any] = {}
 
 
 def reload_bot_commands() -> None:
-    global BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS, BOT_CONFIG_ENABLED, BOT_HELP_TEXT, BOT_HELP_JSON
+    global BOT_COMMANDS_JSON, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS, BOT_CONFIG_ENABLED, BOT_HELP_TEXT, BOT_HELP_JSON
     try:
-        BOT_COMMANDS_XML, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS = load_bot_commands()
+        BOT_COMMANDS_JSON, BOT_COMMANDS_META, BOT_COMMANDS, BOT_COMMANDS_VALIDATION, BOT_MODULES, BOT_FLOWS = load_bot_commands()
         BOT_CONFIG_ENABLED = as_bool(BOT_COMMANDS_META.get("enabled", True))
         BOT_HELP_TEXT, BOT_HELP_JSON = build_bot_help_artifacts()
         log(f"Loaded {len(BOT_COMMANDS)} bot commands from {BOT_COMMANDS_FILE} ({BOT_COMMANDS_META.get('format', 'unknown')})")
-        log(f"Generated help from bot XML with {len(BOT_HELP_JSON.get('entries', []))} visible entries")
+        log(f"Generated help from bot JSON with {len(BOT_HELP_JSON.get('entries', []))} visible entries")
     except Exception as exc:
         BOT_COMMANDS_VALIDATION = {"valid": False, "error": str(exc)}
         BOT_COMMANDS = []
         BOT_MODULES = {}
         BOT_FLOWS = {}
-        BOT_COMMANDS_XML = ""
-        BOT_COMMANDS_META = {"version": "", "source": str(BOT_COMMANDS_FILE)}
+        BOT_COMMANDS_JSON = ""
+        BOT_COMMANDS_META = {"version": "", "source": str(BOT_COMMANDS_FILE), "format": "json-flow"}
         BOT_CONFIG_ENABLED = False
         BOT_HELP_TEXT = "*Mobert Hilfe*\n────────────\n\nKeine Befehle geladen."
         BOT_HELP_JSON = {"generated_at": now_iso(), "source": str(BOT_COMMANDS_FILE), "valid": False, "error": str(exc), "entries": []}
@@ -1616,11 +1513,11 @@ def effective_bot_enabled() -> bool:
 
 
 def command_help_example(cmd: BotCommand, wake_word: str) -> str:
-    """Return the visible WhatsApp command example for one XML command."""
+    """Return the visible WhatsApp command example for one JSON command."""
     trigger = str(cmd.trigger or "").strip()
     example = str(cmd.example or "").strip() or f"{wake_word}: {trigger}"
-    # Keep examples aligned with the currently active wake word.  The XML stores
-    # the start command in <expect><command>; the wake word comes from the
+    # Keep examples aligned with the currently active wake word.  The JSON stores
+    # the start command in input.expect.command; the wake word comes from the
     # whatsapp module and may be changed centrally.
     if ":" in example:
         example = f"{wake_word}: {example.split(':', 1)[1].strip()}"
@@ -1630,20 +1527,20 @@ def command_help_example(cmd: BotCommand, wake_word: str) -> str:
 
 
 def build_bot_help_artifacts() -> Tuple[str, Dict[str, Any]]:
-    """Generate WhatsApp help text and JSON metadata from bot_commands.xml.
+    """Generate WhatsApp help text and JSON metadata from bot_commands.json.
 
-    The active XML command model is the source of truth.  For flow XML, visible
+    The active JSON command model is the source of truth.  For flow JSON, visible
     help entries are derived from enabled flows that start with a
     whatsapp_watchdog command input.  The display text comes from
-    <head><description>, and the start command comes from
-    <step><input module="whatsapp_watchdog" type="command"><expect><command>.
-    After /data/bot_commands.xml is replaced or reloaded via MQTT, this function
+    head.description, and the start command comes from
+    step.input.expect.command.
+    After /data/bot_commands.json is replaced or reloaded via MQTT, this function
     is called again and the rebuilt help is published on messenger/bot/help/#.
     """
     wake_word = effective_wake_word()
     entries: List[Dict[str, Any]] = []
     for cmd in BOT_COMMANDS:
-        if not cmd.enabled:
+        if not cmd.enabled or not cmd.show:
             continue
         example = command_help_example(cmd, wake_word)
         description = (cmd.description or cmd.name or cmd.command_id or cmd.trigger).strip()
@@ -1674,7 +1571,7 @@ def build_bot_help_artifacts() -> Tuple[str, Dict[str, Any]]:
     payload = {
         "generated_at": now_iso(),
         "source": BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)),
-        "format": BOT_COMMANDS_META.get("format", "xml"),
+        "format": BOT_COMMANDS_META.get("format", "json-flow"),
         "version": BOT_COMMANDS_META.get("version", ""),
         "wake_word": wake_word,
         "valid": bool(BOT_COMMANDS_VALIDATION.get("valid", True)),
@@ -1685,7 +1582,7 @@ def build_bot_help_artifacts() -> Tuple[str, Dict[str, Any]]:
 
 
 def command_help_text() -> str:
-    """Return the current XML-generated WhatsApp help text."""
+    """Return the current JSON-generated WhatsApp help text."""
     return BOT_HELP_TEXT or build_bot_help_artifacts()[0]
 
 def interpolate_template(template: str, values: Dict[str, Any]) -> str:
@@ -1851,7 +1748,7 @@ def commands_payload() -> Dict[str, Any]:
         "d": {
             "version": BOT_COMMANDS_META.get("version", ""),
             "source": BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)),
-            "format": BOT_COMMANDS_META.get("format", "legacy"),
+            "format": BOT_COMMANDS_META.get("format", "json-flow"),
             "modules": list(BOT_MODULES.keys()),
             "flows": len(BOT_FLOWS),
             "valid": bool(BOT_COMMANDS_VALIDATION.get("valid", False)),
@@ -1985,7 +1882,8 @@ def add_message_history(client: mqtt.Client, entry: Dict[str, Any]) -> None:
 
 def publish_bot_commands(client: mqtt.Client) -> None:
     publish(client, topic("bot", "commands", "json"), commands_payload())
-    publish(client, topic("bot", "commands", "xml"), BOT_COMMANDS_XML)
+    publish(client, topic("bot", "commands", "source", "json"), BOT_COMMANDS_JSON)
+    clear_retained(client, topic("bot", "commands", "xml"))
     publish(client, topic("bot", "commands", "count"), len(BOT_COMMANDS))
     publish(client, topic("bot", "commands", "version"), BOT_COMMANDS_META.get("version", ""))
     publish(client, topic("bot", "commands", "source"), BOT_COMMANDS_META.get("source", str(BOT_COMMANDS_FILE)))
@@ -1997,7 +1895,7 @@ def publish_bot_commands(client: mqtt.Client) -> None:
         valid=bool(BOT_COMMANDS_VALIDATION.get("valid", False)),
         mode="load",
         accepted={"commands": len(BOT_COMMANDS)} if BOT_COMMANDS_VALIDATION.get("valid") else {},
-        rejected={} if BOT_COMMANDS_VALIDATION.get("valid") else {"xml": BOT_COMMANDS_VALIDATION.get("error", "unknown error")},
+        rejected={} if BOT_COMMANDS_VALIDATION.get("valid") else {"json": BOT_COMMANDS_VALIDATION.get("error", "unknown error")},
         remarks=["Bot-Befehle geladen"] if BOT_COMMANDS_VALIDATION.get("valid") else ["Bot-Befehle konnten nicht geladen werden"],
     )
 
@@ -2400,17 +2298,20 @@ def handle_commands_renew(client: mqtt.Client) -> None:
     publish_state(client, refresh_groups=False)
 
 
-def handle_commands_set_xml(client: mqtt.Client, payload: str) -> None:
-    # Allows replacing /data/bot_commands.xml via MQTT while keeping the XML
-    # parser safe: the payload must be well-formed and use a supported root.
-    xml_text = payload.strip()
-    if not xml_text:
-        raise RuntimeError("commands/set/xml requires an XML payload")
-    root = ET.fromstring(xml_text)
-    if root.tag not in {"mobertBotConfig", "mobertCommands"}:
-        raise RuntimeError(f"Unsupported bot XML root element: {root.tag}")
+def handle_commands_set_config_json(client: mqtt.Client, payload: str) -> None:
+    # Allows replacing /data/bot_commands.json via MQTT.  The payload must be a
+    # JSON object with format=mobertBotConfig.  The stored file is pretty-printed
+    # so it remains easy for another local app or a human to compare and edit.
+    json_text = payload.strip()
+    if not json_text:
+        raise RuntimeError("commands/set/config/json requires a JSON payload")
+    data = json.loads(json_text)
+    if not isinstance(data, dict):
+        raise RuntimeError("commands/set/config/json requires a JSON object")
+    if str(data.get("format") or "mobertBotConfig") != "mobertBotConfig":
+        raise RuntimeError(f"Unsupported bot JSON format: {data.get('format')}")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    BOT_COMMANDS_FILE.write_text(xml_text + "\n", encoding="utf-8")
+    BOT_COMMANDS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     reload_bot_commands()
     rebuild_forward_subscriptions(client)
     publish_bot_commands(client)
@@ -2419,9 +2320,9 @@ def handle_commands_set_xml(client: mqtt.Client, payload: str) -> None:
         client,
         topic("bot", "commands", "validation", "json"),
         valid=True,
-        mode="set_xml",
+        mode="set_config_json",
         accepted={"source": str(BOT_COMMANDS_FILE), "format": BOT_COMMANDS_META.get("format", ""), "help_entries": len(BOT_HELP_JSON.get("entries", []))},
-        remarks=["Bot-XML gespeichert, Befehle neu geladen und Hilfe neu aufgebaut"],
+        remarks=["Bot-JSON gespeichert, Befehle neu geladen und Hilfe neu aufgebaut"],
     )
 
 
@@ -3190,7 +3091,7 @@ def render_value(template_value: str, context: Dict[str, Any]) -> str:
     rendered = template_value or ""
     for key, value in context.items():
         rendered = rendered.replace("{" + key + "}", str(value))
-    # Support simple dotted aliases used in the flow XML.
+    # Support simple dotted aliases used in the flow JSON.
     rendered = rendered.replace("{processing.result}", str(context.get("processing.result", "")))
     return rendered
 
@@ -3244,8 +3145,8 @@ def mqtt_topic_matches_filter_or_suffix(source_topic: str, expected_filter: str)
     """Match MQTT filters even when ROS adds a topic prefix.
 
     OpenMower ROS installations often publish with OM_MQTT_TOPIC_PREFIX, for
-    example openmower/robot_state/json instead of robot_state/json.  The flow
-    XML subscribes to the concrete prefixed topics, but the status cache should
+    example openmower/robot_state/json instead of robot_state/json.  The JSON flows
+    can subscribe to concrete topics, but the status cache should
     still recognize the semantic status source independent of the prefix.
     """
     source = str(source_topic or "").strip("/")
@@ -3444,10 +3345,10 @@ def gps_loss_warning_text(gps_state: Dict[str, Any]) -> str:
 
 
 def handle_internal_openmower_events(client: mqtt.Client, source_topic: str, parsed: Any, previous: Any) -> None:
-    """Handle cross-topic events that cannot be expressed in XML alone.
+    """Handle cross-topic events that cannot be expressed in a single JSON flow alone.
 
     GPS loss while mowing needs the current robot_state and the current gps_state
-    at the same time.  The XML flow matcher can compare only the payload of the
+    at the same time.  The JSON flow matcher can compare only the payload of the
     triggering MQTT topic, so this one event is handled centrally in Python.
     """
     global GPS_LOSS_ALERT_ACTIVE
@@ -3595,7 +3496,7 @@ def execute_output(client: mqtt.Client, output_cfg: Dict[str, Any], context: Dic
         if message.strip():
             send_text(client, target, message, request_id=str(context.get("request_id", "bot")))
         return message
-    # Unknown output modules are intentionally not executed. This keeps XML safe:
+    # Unknown output modules are intentionally not executed. This keeps JSON-driven output safe:
     # only registered modules can perform actions.
     log(f"Ignored unsupported output module={module_id} type={output_type}")
     return ""
@@ -3854,7 +3755,7 @@ def execute_legacy_command_response(client: mqtt.Client, cmd: BotCommand, values
         client.publish(cmd.mqtt_topic, mqtt_payload, qos=cmd.mqtt_qos, retain=cmd.mqtt_retain)
         response = interpolate_template(cmd.immediate_confirmation, values) or "Befehl wurde an MQTT gesendet."
         if cmd.wait_confirmation.get("enabled"):
-            response += "\nHinweis: Warten auf MQTT-Bestaetigung ist nur in der Flow-XML aktiv."
+            response += "\nHinweis: Warten auf MQTT-Bestaetigung ist nur in der Flow-JSON aktiv."
         return response, True
 
     return f"Aktionstyp noch nicht implementiert: {cmd.action_type}", False
@@ -4051,11 +3952,11 @@ def on_connect(client: mqtt.Client, userdata: Any, flags: Any, reason_code: Any,
     client.subscribe(topic("bot", "set", "session", "json"))
     client.subscribe(topic("bot", "set", "persistent", "json"))
     client.subscribe(topic("bot", "commands", "set", "renew", "json"))
-    client.subscribe(topic("bot", "commands", "set", "xml"))
+    client.subscribe(topic("bot", "commands", "set", "config", "json"))
 
-    # Subscribe status cache topics independently from XML.  This keeps
-    # "Mobert: Status" working even when /data/bot_commands.xml is still
-    # the legacy command-only file and contains no mqtt_watchdog flows.
+    # Subscribe status cache topics independently from JSON flow edits. This keeps
+    # "Mobert: Status" working even when a user disables or removes
+    # mqtt_watchdog status flows from /data/bot_commands.json.
     subscribe_status_cache_topics(client)
 
     # Optional internal forwarding configuration. This has no public legacy topic,
@@ -4096,8 +3997,8 @@ def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> Non
             handle_bot_set(client, payload, "persistent")
         elif mqtt_topic == topic("bot", "commands", "set", "renew", "json"):
             handle_commands_renew(client)
-        elif mqtt_topic == topic("bot", "commands", "set", "xml"):
-            handle_commands_set_xml(client, payload)
+        elif mqtt_topic == topic("bot", "commands", "set", "config", "json"):
+            handle_commands_set_config_json(client, payload)
         elif not mqtt_topic.startswith(MQTT_BASE_TOPIC + "/"):
             if not handle_flow_mqtt_event(client, mqtt_topic, payload):
                 handle_forwarded_mqtt(client, mqtt_topic, payload)

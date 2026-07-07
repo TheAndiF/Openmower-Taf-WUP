@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-07 - v1.2 - JSON-only Mobert flow configuration
+
+- Replaced `/data/bot_commands.xml` with `/data/bot_commands.json` as the only active Mobert flow configuration.
+- Removed runtime XML parsing and legacy `mobertCommands` loading from `bridge/controller.py`.
+- Added JSON loading, JSON validation and MQTT replacement through `messenger/bot/commands/set/config/json`.
+- Published the active source configuration on `messenger/bot/commands/source/json` while keeping parsed command metadata on `messenger/bot/commands/json`.
+- Converted `bridge/bot_commands.example.xml` and `controller_data/bot_commands.xml` to JSON and raised the configuration version to `0.5`.
+- Added `show` handling for JSON flows so visible help entries can be hidden without disabling the flow.
+- Updated README, MQTT documentation and deployment notes for the JSON-only structure.
+
 ## 2026-07-07 - v1.1 - Compact WAHA QR data topics
 
 - Reduced the visible MQTT QR output to the two required data topics: `messenger/status/WAHA_QR_Code_Data` and `messenger/waha/QR_Code_Data`.

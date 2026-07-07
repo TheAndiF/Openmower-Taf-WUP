@@ -121,12 +121,14 @@ messenger/
     │       └── name
     ├── commands/
     │   ├── json
-    │   ├── xml
+    │   ├── source/
+    │   │   └── json
     │   ├── count
     │   ├── version
     │   ├── source
     │   ├── set/
-    │   │   ├── xml
+    │   │   ├── config/
+    │   │   │   └── json
     │   │   └── renew/
     │   │       └── json
     │   └── validation/
@@ -388,12 +390,12 @@ Configure Mobert persistently:
 mosquitto_pub -h Mosquitto -t messenger/bot/set/persistent/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
 ```
 
-## Bot commands XML
+## Bot commands JSON
 
-The command file is loaded from `/data/bot_commands.xml` and exposed as:
+The command file is loaded from `/data/bot_commands.json` and exposed as:
 
 ```text
-messenger/bot/commands/xml
+messenger/bot/commands/source/json
 messenger/bot/commands/json
 messenger/bot/commands/count
 messenger/bot/commands/version
@@ -401,7 +403,7 @@ messenger/bot/commands/source
 messenger/bot/commands/validation/json
 ```
 
-Reload XML commands:
+Reload JSON commands:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
@@ -414,96 +416,35 @@ Mobert: Status
 Mobert: ?
 ```
 
-## Mobert XML flow engine
+## Mobert JSON flow engine
 
-`messenger/bot/commands/#` exposes the loaded XML and the parsed flow command list. The controller accepts both the legacy `<mobertCommands>` format and the new `<mobertBotConfig>` flow format. The new format defines central modules and flow steps:
+`messenger/bot/commands/#` exposes the active JSON configuration and the parsed flow command list. The controller is JSON-only and expects the `mobertBotConfig` format. XML and legacy `mobertCommands` loading are intentionally removed. The JSON defines central modules and flow steps:
 
 ```text
 modules: whatsapp, whatsapp_watchdog, mqtt_watchdog, whatsapp_output, mqtt_output
-whatsapp_watchdog and whatsapp_output reference the central whatsappModule.
-flow step: input -> processing -> output
+whatsapp_watchdog and whatsapp_output reference the central whatsapp module.
+flow step: input -> processing -> outputs
 ```
 
-Replace the XML file at runtime:
+Replace the JSON file at runtime:
 
 ```bash
-mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/config/json -f bot_commands.json
 ```
 
-Reload the XML from `/data/bot_commands.xml`:
+Reload the JSON from `/data/bot_commands.json`:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 ```
 
-Existing Bot settings remain available and override XML defaults where applicable:
+Existing Bot settings remain available and override JSON defaults where applicable:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/set/session/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
 mosquitto_pub -h Mosquitto -t messenger/bot/set/persistent/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
 ```
 
-MQTT confirmation steps are published while pending under:
-
-```text
-messenger/bot/confirmations/pending/json
-```
-
-
-## ROS MQTT inputs used by Mobert
-
-The default flow XML subscribes to ROS/OpenMower MQTT topics through the central `mqtt_watchdog` input module.
-
-| Topic | Used for |
-|---|---|
-| `robot_state/json` | OpenMower state, active/checkpoint area IDs, path, charging flag, emergency flag and Auto Mow values. |
-| `map/mowing_progress/status/json` | Live mowing progress: `current_area_id`, `areas[current_area_id].percent`, state, path and path index. |
-| `sensors/om_system_wifi_signal_percent/data` | WLAN strength in percent for status and WhatsApp notifications. |
-
-Enabled default flows:
-
-| Flow | Trigger condition | Output |
-|---|---|---|
-| `openmower_drives_off_notification` | `current_state` changes from `IDLE` to another state and `emergency` is not `true`. | WhatsApp notification that the mower drives off. |
-| `openmower_charging_finished_notification` | `is_charging` changes from `true` to `false`. | WhatsApp notification that charging has finished. |
-| `openmower_error_notification` | `emergency` changes to `true`. | WhatsApp warning for an OpenMower error/emergency. |
-| `openmower_wifi_cache` | WLAN payload is received. | Internal cache update for status output. |
-
-The `Mobert: Status` reply contains a timestamp, MQTT connection state, WLAN strength, OpenMower state, current mowing area, mowing progress, Auto Mow state, charging text and error/emergency status.
-
-## ROS-MQTT-Statusquellen für Mobert
-
-Mobert wertet folgende ROS-MQTT-Topics für Status und automatische WhatsApp-Meldungen aus:
-
-| Topic/Filter | Zweck |
-|---|---|
-| `robot_state/json` | OpenMower Statusmeldung ohne Prefix |
-| `openmower/robot_state/json` | OpenMower Statusmeldung mit `openmower/` Prefix, wird ebenfalls akzeptiert |
-| `sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke ohne Prefix; nur dieses Text-/Zahlen-Topic fuer WLAN verwenden |
-| `openmower/sensors/om_system_wifi_signal_percent/data` | WLAN-Signalstaerke mit `openmower/` Prefix, wird ebenfalls akzeptiert |
-| `area_queue/json`, `mow_area/json`, `mow_area/status/json`, `mowing_area/json`, `mowing/area_queue/json` | MowArea-Cache fuer Flächenname, `mowing_order` und Pfadpunkte ohne Prefix |
-| `map/mowing_progress/status/json`, `mowing_progress/status/json` | Live-Fortschritt aus der Web-App-Quelle ohne Prefix |
-| `openmower/area_queue/json`, `openmower/mow_area/json`, `openmower/mow_area/status/json`, `openmower/mowing_area/json`, `openmower/mowing/area_queue/json` | MowArea-Cache mit `openmower/` Prefix |
-| `openmower/map/mowing_progress/status/json`, `openmower/mowing_progress/status/json` | Live-Fortschritt aus der Web-App-Quelle mit `openmower/` Prefix |
-| `sensors/om_system_wifi_signal_percent/bson` | Binaeres Geschwistertopic; wird fuer den WLAN-Cache bewusst ignoriert |
-
-Wichtige Felder aus `robot_state`:
-
-| Feld | Verwendung |
-|---|---|
-| `current_state` | Statuszeile und Losfahr-Erkennung |
-| `current_area_id` | bevorzugte aktuell aktive Mähfläche fuer Status und MowArea |
-| `checkpoint_area_id` | letzter gespeicherter Checkpoint-Flächenbezug, Fallback falls keine aktive Fläche gemeldet wird |
-| `current_area` | numerischer Fallback fuer Flächenanzeige |
-| `current_path` / `current_path_index` | Pfad und Pfadindex fuer MowArea, falls der Progress-Payload keinen Pfad liefert |
-| `battery_percentage` | Akkustand, Werte 0..1 werden automatisch in Prozent umgerechnet |
-| `is_charging` | Ladezustand in der Akku-Zeile, z. B. `95 % (lädt)` |
-| `AutoMow` / `AutoMowSuspension` | Auto-Mow-Anzeige: aktiviert, deaktiviert, ausgesetzt bis Datum oder ausgesetzt unendlich bei Jahr 9999 |
-| `emergency` | Fehler-/Notfall-Erkennung |
-
-
-
-## Status-Frische und Nachrichtenhistorie
 
 `Mobert: Status` wartet kurz auf neue ROS-MQTT-Daten, bevor die WhatsApp-Antwort ausgegeben wird. Standardmäßig werden bis zu 3 Sekunden auf frische Werte aus `robot_state/json`, `map/mowing_progress/status/json` und `sensors/om_system_wifi_signal_percent/data` gewartet. Der interne Statuscache erkennt dieselben Quellen auch mit `openmower/` Prefix; fuer WLAN wird ausschliesslich das konkrete `/data` Topic akzeptiert. Der Timeout kann über die Umgebungsvariable `STATUS_FRESH_WAIT_SECONDS` angepasst werden.
 
@@ -513,31 +454,31 @@ Ausgehende WhatsApp-Nachrichten, die die Bridge per WAHA sendet, werden im Rings
 
 ## Stop-Befehl
 
-Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logic:mowing/abort_mowing` auf das Topic `action`. Die Befehle `Home`, `Dock` und `Docking` sind nicht in der Standard-XML enthalten, weil dafür noch kein gesicherter OpenMower-Docking-Payload hinterlegt ist.
+Der aktivierte Standardbefehl `Mobert: Stop` sendet den MQTT-Payload `mower_logic:mowing/abort_mowing` auf das Topic `action`. Die Befehle `Home`, `Dock` und `Docking` sind nicht in der Standard-JSON enthalten, weil dafür noch kein gesicherter OpenMower-Docking-Payload hinterlegt ist.
 
 
 ## v1.3 Hinweis: Statusformat und Hilfe
 
 `Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
-`Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
+`Mobert: ?` wird aus der aktiv geladenen JSON-Konfiguration erzeugt. Die JSON-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
 
 
 ## v1.4 Hilfe-Snapshots
 
-Die aus `bot_commands.xml` erzeugte Hilfe wird retained auf MQTT veroeffentlicht:
+Die aus `bot_commands.json` erzeugte Hilfe wird retained auf MQTT veroeffentlicht:
 
 ```text
 messenger/bot/help/text
 messenger/bot/help/json
 ```
 
-`messenger/bot/help/text` enthaelt die WhatsApp-fertige Hilfe. `messenger/bot/help/json` enthaelt Metadaten wie Quelle, Format, Wake Word und die aus der XML gemappten Eintraege.
+`messenger/bot/help/text` enthaelt die WhatsApp-fertige Hilfe. `messenger/bot/help/json` enthaelt Metadaten wie Quelle, Format, Wake Word und die aus der JSON gemappten Eintraege.
 
 Nach diesen Aktionen wird die Hilfe neu aufgebaut und erneut veroeffentlicht:
 
 ```text
-messenger/bot/commands/set/xml
+messenger/bot/commands/set/config/json
 messenger/bot/commands/set/renew/json
 ```
 

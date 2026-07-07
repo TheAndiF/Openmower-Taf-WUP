@@ -106,7 +106,7 @@ docker exec -it Mosquitto mosquitto_pub \
   -m '{"enabled":true,"limit":10}'
 ```
 
-## 9. Reload command XML
+## 9. Reload command JSON
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub \
@@ -123,7 +123,7 @@ Write this inside the configured listen group:
 Mobert: ?
 ```
 
-The colon is required. The controller should reply with the available commands from `/data/bot_commands.xml`.
+The colon is required. The controller should reply with the available commands from `/data/bot_commands.json`.
 
 ## Useful status topics
 

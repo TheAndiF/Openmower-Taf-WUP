@@ -48,7 +48,7 @@ Standardmäßig aktivierte Flows:
 
 ## Hinweise
 
-Die Flow-XML nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Watchdog und MQTT-Output. Die ROS-MQTT-Topics werden über aktivierte MQTT-Watchdog-Flows abonniert. Bestehende MQTT-Konfigurationsbefehle bleiben weiterhin gültig.
+Die Flow-JSON nutzt zentrale Module für WhatsApp-Input, WhatsApp-Output, MQTT-Watchdog und MQTT-Output. Die ROS-MQTT-Topics werden über aktivierte MQTT-Watchdog-Flows abonniert. Bestehende MQTT-Konfigurationsbefehle bleiben weiterhin gültig.
 
 
 Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich mit `openmower/` Prefix. Fuer WLAN wird nur `sensors/om_system_wifi_signal_percent/data` bzw. `openmower/sensors/om_system_wifi_signal_percent/data` verarbeitet, damit binaere `bson`-Payloads den Prozentwert nicht ueberschreiben.
@@ -58,4 +58,4 @@ Der interne Statuscache erkennt Status- und WLAN-Topics zusätzlich mit `openmow
 
 `Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
-`Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
+`Mobert: ?` wird aus der aktiv geladenen JSON-Konfiguration erzeugt. Die JSON-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.

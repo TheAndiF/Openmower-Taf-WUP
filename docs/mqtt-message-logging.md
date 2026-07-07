@@ -43,7 +43,7 @@ Danach sollte unter `messenger/waha/messages/out/last/json` die zuletzt gesendet
 
 ## ROS-MQTT-Topics
 
-Die Flow-XML nutzt jetzt die konkreten ROS-MQTT-Topics:
+Die Flow-JSON nutzt jetzt die konkreten ROS-MQTT-Topics:
 
 | Zweck | Topic |
 |---|---|
@@ -52,4 +52,4 @@ Die Flow-XML nutzt jetzt die konkreten ROS-MQTT-Topics:
 
 Die JSON-Felder `emergency` und `is_charging` werden als numerische Werte `0` oder `1` ausgewertet.
 
-Hinweis zum Prefix: Die aktive Flow-XML nutzt die unprefixed Topics des Zielsystems. Der Controller akzeptiert zusaetzlich die `openmower/` Varianten. Fuer WLAN wird bewusst nur das konkrete `/data` Topic verarbeitet, weil das Geschwistertopic `/bson` binaer ist.
+Hinweis zum Prefix: Die aktive Flow-JSON nutzt die unprefixed Topics des Zielsystems. Der Controller akzeptiert zusaetzlich die `openmower/` Varianten. Fuer WLAN wird bewusst nur das konkrete `/data` Topic verarbeitet, weil das Geschwistertopic `/bson` binaer ist.

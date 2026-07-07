@@ -62,7 +62,7 @@ services:
       - DATA_DIR=/data
       - MESSENGER_PROVIDER=${MESSENGER_PROVIDER:-waha}
       - MESSENGER_PROTOCOL=${MESSENGER_PROTOCOL:-whatsapp}
-      - BOT_COMMANDS_FILE=${BOT_COMMANDS_FILE:-/data/bot_commands.xml}
+      - BOT_COMMANDS_FILE=${BOT_COMMANDS_FILE:-/data/bot_commands.json}
       # Cache only text/JSON status topics. WiFi /bson is binary and must not be used.
       - OPENMOWER_STATUS_CACHE_TOPICS=${OPENMOWER_STATUS_CACHE_TOPICS:-robot_state/json,gps_state/json,gps/position/json,gps_position/json,area_queue/json,mow_area/json,mow_area/status/json,mowing_area/json,mowing/area_queue/json,sensors/om_system_wifi_signal_percent/data,openmower/robot_state/json,openmower/gps_state/json,openmower/gps/position/json,openmower/gps_position/json,openmower/area_queue/json,openmower/mow_area/json,openmower/mow_area/status/json,openmower/mowing_area/json,openmower/mowing/area_queue/json,openmower/sensors/om_system_wifi_signal_percent/data}
     volumes:

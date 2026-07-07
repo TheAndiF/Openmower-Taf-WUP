@@ -16,7 +16,7 @@ Wenn der Controller auf `sensors/om_system_wifi_signal_percent/#` subscribed, ka
 
 ## Korrektur
 
-`bridge/controller.py` subscribed die Statuscache-Topics weiterhin unabhaengig von der XML, aber nun standardmaessig nur auf konkrete Text-/JSON-Topics:
+`bridge/controller.py` subscribed die Statuscache-Topics weiterhin unabhaengig von der JSON, aber nun standardmaessig nur auf konkrete Text-/JSON-Topics:
 
 - `robot_state/json`
 - `sensors/om_system_wifi_signal_percent/data`
@@ -43,12 +43,12 @@ Der Wildcard-Filter empfaengt auch `bson` und andere Geschwistertopics.
 
 ## Deployment-Hinweis
 
-Die Compose-Datei mountet `./controller_data` nach `/data`. Deshalb muss die aktive XML-Datei auf dem Host ersetzt werden, wenn im Container noch die alte legacy XML liegt:
+Die Compose-Datei mountet `./controller_data` nach `/data`. Deshalb muss die aktive JSON-Datei auf dem Host ersetzt werden, wenn im Container noch eine alte JSON liegt:
 
 ```bash
 cd /opt/stacks/whatsapp
-cp controller_data/bot_commands.xml controller_data/bot_commands.xml.bak.$(date +%Y%m%d-%H%M%S)
-# Danach die neue controller_data/bot_commands.xml aus diesem Paket an diese Stelle kopieren.
+cp controller_data/bot_commands.json controller_data/bot_commands.json.bak.$(date +%Y%m%d-%H%M%S)
+# Danach die neue controller_data/bot_commands.json aus diesem Paket an diese Stelle kopieren.
 docker compose build --no-cache waha_mqtt_controller
 docker compose up -d --force-recreate waha_mqtt_controller
 ```
@@ -89,7 +89,7 @@ Danach sollte `Mobert: Status` Status, Flaeche, Akku und WLAN als Zahl ausgeben,
 
 `Mobert: Status` formatiert die Zeit lokal ueber `STATUS_TIMEZONE`, zeigt WhatsApp-fette Feldnamen und gibt Fläche sowie Bearbeitung als eigene Zeilen aus. Der Fortschritt kommt bevorzugt aus `map/mowing_progress/status/json -> areas[current_area_id].percent`; `Emergency` und `Fehler` werden immer ausgegeben.
 
-`Mobert: ?` wird aus der aktiv geladenen XML-Konfiguration erzeugt. Die XML-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
+`Mobert: ?` wird aus der aktiv geladenen JSON-Konfiguration erzeugt. Die JSON-Datei ist damit die Quelle der Wahrheit fuer die angezeigten Befehle.
 
 ## Erweiterung 2026-06-26: GPS-Status und Positionsplatzhalter
 

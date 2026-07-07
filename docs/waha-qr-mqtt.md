@@ -91,7 +91,7 @@ done
 
 ## Operational notes
 
-- The selected WAHA session is taken from `WAHA_SESSION`, `WHATSAPP_SESSION`, `WAHA_DEFAULT_SESSION` or the XML/default configuration.
+- The selected WAHA session is taken from `WAHA_SESSION`, `WHATSAPP_SESSION`, `WAHA_DEFAULT_SESSION` or the JSON/default configuration.
 - The QR loop refreshes the MQTT QR value every `WAHA_QR_REFRESH_SECONDS` seconds.
 - The general controller refresh loop still publishes the full state using `CONTROLLER_REFRESH_SECONDS`.
 - `compose.example.yaml` includes the QR MQTT environment variables for the controller service.

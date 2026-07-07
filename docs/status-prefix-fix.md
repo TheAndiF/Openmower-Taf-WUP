@@ -5,11 +5,11 @@ Status: v0.3
 
 ## Zweck
 
-`Mobert: Status` zeigte Status, Fläche, Akku und WLAN als `unbekannt` bzw. `keine aktive Fläche`, wenn OpenMower seine ROS-MQTT-Daten mit dem Prefix `openmower/` veröffentlicht hat, die Flow-XML aber noch auf unpräfixte Topics wie `robot_state/json` lauschte.
+`Mobert: Status` zeigte Status, Fläche, Akku und WLAN als `unbekannt` bzw. `keine aktive Fläche`, wenn OpenMower seine ROS-MQTT-Daten mit dem Prefix `openmower/` veröffentlicht hat, die Flow-JSON aber noch auf unpräfixte Topics wie `robot_state/json` lauschte.
 
 ## Geändertes Verhalten
 
-Die aktive XML und die Beispiel-XML verwenden jetzt die OpenMower-Topics mit Prefix:
+Die aktive JSON und die Beispiel-JSON verwenden jetzt die OpenMower-Topics mit Prefix:
 
 | Zweck | Topic |
 |---|---|
@@ -22,7 +22,7 @@ Die vorhandenen Start-Fläche-Topics `openmower/cmd/start_area` und `openmower/c
 
 ## Controller-Fix
 
-`bridge/controller.py` erkennt Status- und WLAN-Topics zusätzlich über ihr semantisches Suffix. Dadurch kann der interne Cache auch Daten von Topics wie `robot_state/json`, `robot_state/json` oder `<anderer-prefix>/robot_state/json` übernehmen.
+`bridge/controller.py` erkennt Status- und WLAN-Topics zusätzlich über ihr semantisches Suffix. Dadurch kann der interne Cache auch Daten von Topics wie `robot_state/json`, `openmower/robot_state/json` oder `<anderer-prefix>/robot_state/json` übernehmen.
 
 ## Prüfung nach dem Deployment
 
@@ -55,7 +55,7 @@ docker compose build waha_mqtt_controller
 docker compose up -d
 ```
 
-Wenn bereits eine alte `/data/bot_commands.xml` im Volume liegt, muss die aktive XML ersetzt oder neu eingelesen werden:
+Wenn bereits eine alte `/data/bot_commands.json` im Volume liegt, muss die aktive JSON ersetzt oder neu eingelesen werden:
 
 ```bash
 docker exec -it Mosquitto mosquitto_pub -h localhost \
@@ -66,7 +66,7 @@ docker exec -it Mosquitto mosquitto_pub -h localhost \
 
 ## Nachtrag v1.1
 
-Der Live-Test auf dem Zielsystem zeigte, dass Status und WLAN tatsaechlich ohne `openmower/` Prefix gesendet werden. Deshalb nutzt die ausgelieferte XML wieder `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der Controller bleibt trotzdem prefix-tolerant und subscribed die Cache-Topics zusaetzlich unabhaengig von der XML. Details siehe `docs/status-cache-subscriptions.md`.
+Der Live-Test auf dem Zielsystem zeigte, dass Status und WLAN tatsaechlich ohne `openmower/` Prefix gesendet werden. Deshalb nutzt die ausgelieferte JSON wieder `robot_state/json` und `sensors/om_system_wifi_signal_percent/data`. Der Controller bleibt trotzdem prefix-tolerant und subscribed die Cache-Topics zusaetzlich unabhaengig von der JSON. Details siehe `docs/status-cache-subscriptions.md`.
 
 
 ## v1.2 Hinweis

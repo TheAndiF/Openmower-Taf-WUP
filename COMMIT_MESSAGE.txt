@@ -1,17 +1,36 @@
-BL_Compact WAHA QR MQTT data output
+BL_Convert Mobert flows to JSON only
 Date: 2026-07-07
 Summary:
-- Reduced WAHA QR MQTT output to only the requested raw data topics for status and WAHA consumers.
-- Removed visible QR text/status/required/available/session/error topic publications from the current QR API.
-- Added cleanup for retained legacy QR metadata topics so older values disappear from MQTT status views.
-- Kept the QR raw value non-retained by default and retained an empty value when no QR is available.
-- Updated documentation for using the data topic with another local app to render the WhatsApp pairing QR code.
+- Replaced the Mobert command and flow configuration with JSON-only loading.
+- Removed XML parsing and legacy mobertCommands support from the controller.
+- Converted the active and packaged command definitions to bot_commands.json with configuration version 0.5.
+- Added MQTT JSON replacement through messenger/bot/commands/set/config/json and source publication through messenger/bot/commands/source/json.
+- Added flow head show support so commands can be hidden from generated help without disabling the flow.
+- Updated README, MQTT/deployment documentation, changelog, and delivered PDF/DOCX documentation for the JSON-only configuration.
 Changed files:
-- README.md
+- .env.example
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
+- README.md
+- bridge/Dockerfile
+- bridge/bot_commands.example.json
+- bridge/bot_commands.example.xml
 - bridge/controller.py
+- compose.example.yaml
+- controller_data/bot_commands.json
+- controller_data/bot_commands.xml
+- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - JSON Flow Configuration - v1.2.docx
+- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - JSON Flow Configuration - v1.2.pdf
+- docs/json-flow-configuration.md
+- docs/json-generated-help.md
+- docs/mobert-status-formatting.md
+- docs/mqtt-message-logging.md
 - docs/mqtt-topics.md
+- docs/openmower-deploy.md
+- docs/openmower-ros-whatsapp-notifications.md
+- docs/package-hygiene.md
+- docs/status-cache-subscriptions.md
+- docs/status-prefix-fix.md
 - docs/waha-qr-mqtt.md
-- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - WAHA QR MQTT Compact Data - v1.1.docx
-- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - WAHA QR MQTT Compact Data - v1.1.pdf
+- docs/whatsapp-status-gps-automation.md
+- docs/xml-generated-help.md

@@ -7,7 +7,7 @@ Diese Datei dokumentiert die Paketbereinigung fuer die WhatsApp-MQTT-Bridge.
 
 ## Ziel
 
-Das Auslieferungspaket soll keine lokalen Git-Daten, Python-Cachedateien oder privaten Laufzeitdaten enthalten. Gleichzeitig soll die aktive Bot-Flow-XML weiterhin im Paket enthalten bleiben.
+Das Auslieferungspaket soll keine lokalen Git-Daten, Python-Cachedateien oder privaten Laufzeitdaten enthalten. Gleichzeitig soll die aktive Bot-Flow-JSON weiterhin im Paket enthalten bleiben.
 
 ## Geaenderte Regeln
 
@@ -24,10 +24,10 @@ Damit werden lokale Git-Metadaten nicht versehentlich in ein ZIP-Paket uebernomm
 `controller_data/` bleibt bewusst nicht ignoriert. Der Ordner enthaelt die aktive Datei:
 
 ```text
-controller_data/bot_commands.xml
+controller_data/bot_commands.json
 ```
 
-Diese Datei soll im Paket enthalten sein, damit die neue Flow-XML beim Ausrollen direkt als aktive Konfiguration vorhanden ist.
+Diese Datei soll im Paket enthalten sein, damit die neue Flow-JSON beim Ausrollen direkt als aktive Konfiguration vorhanden ist.
 
 ## Vor einer Paketweitergabe pruefen
 

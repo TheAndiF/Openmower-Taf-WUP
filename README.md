@@ -18,10 +18,10 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Enable or disable WAHA through MQTT, live or persistently.
 - Publish the active WAHA WhatsApp pairing QR raw value to MQTT while the selected session is waiting for a QR scan.
 - Store a configurable retained history of the last messages, default `10`.
-- Load Mobert flow commands from `/data/bot_commands.xml` using the XML-driven module architecture.
-- Publish the raw command/flow XML and parsed command JSON below `messenger/bot/commands/#`.
-- Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings remain compatible and override the XML defaults at runtime.
-- Use the WhatsApp watchdog module from the XML for the command syntax `Mobert: Befehl`.
+- Load Mobert flow commands from `/data/bot_commands.json` using the JSON-driven module architecture.
+- Publish the active command/flow JSON and parsed command JSON below `messenger/bot/commands/#`.
+- Configure Mobert through OpenMower-like `set/session/json`, `set/persistent/json` and `validation/json` topics. These MQTT settings override the JSON defaults at runtime.
+- Use the WhatsApp watchdog module from the JSON for the command syntax `Mobert: Befehl`.
 - Send standard WhatsApp notifications from ROS MQTT for undocking, docking-to-idle charging start, emergency/error and GPS loss while mowing.
 - Format `Mobert: Status` for WhatsApp with readable local time, bold labels, current mowing area, live mowing progress, Auto Mow suspension status, compact GPS readiness and GPS position placeholders.
 - Provide a WhatsApp GPS submenu with detailed `gps_state` diagnostics.
@@ -32,35 +32,39 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Build multi-platform Docker images through GitHub Actions.
 
 
-## XML-driven flow architecture
+## JSON-driven flow architecture
 
-`/data/bot_commands.xml` now supports the flow format:
+Details zur bearbeitbaren JSON-Struktur stehen in `docs/json-flow-configuration.md`.
+
+`/data/bot_commands.json` is the only Mobert command configuration format. XML support and legacy `mobertCommands` loading were removed so another local app can read and edit one clear JSON file. The configuration version was raised to `0.5`.
 
 ```text
 mobertBotConfig
+├── head
 ├── modules
-│   ├── whatsappModule whatsapp
-│   ├── inputModule    whatsapp_watchdog -> moduleRef whatsapp
-│   ├── inputModule    mqtt_watchdog
-│   ├── outputModule   whatsapp_output -> moduleRef whatsapp
-│   └── outputModule   mqtt_output
+│   ├── whatsapp             kind: whatsappModule
+│   ├── whatsapp_watchdog    kind: inputModule, moduleRef: whatsapp
+│   ├── mqtt_watchdog        kind: inputModule
+│   ├── whatsapp_output      kind: outputModule, moduleRef: whatsapp
+│   └── mqtt_output          kind: outputModule
 └── flows
-    └── flow
-        ├── head
-        └── step
-            ├── input
-            ├── processing
-            └── output
+    └── <flow_id>
+        ├── head             name, description, enabled, show
+        └── steps
+            └── <step_id>
+                ├── input
+                ├── processing
+                └── outputs
 ```
 
-There is only one central watchdog/output instance per module type. The XML does not start separate listeners for every command. Instead, the active `flow` entries decide which WhatsApp commands and MQTT topics are relevant.
+Each flow keeps the previous module, input, processing and output model. `enabled` controls whether a flow runs. `show` controls whether a command is listed in `Mobert: ?` and `messenger/bot/help/json`; hidden flows can still run if they are enabled and matched by input.
 
-Legacy `mobertCommands` XML files are still accepted, but the supplied example file uses the new flow structure. Existing MQTT configuration topics remain available. For example, `messenger/bot/set/session/json` can still set `enabled`, `wake_word` and `listen_group_alias`; `messenger/waha/set/session/json` can also set `session`. These values override the XML defaults until the controller is restarted or the persistent config is changed.
+Existing MQTT runtime configuration topics remain available. For example, `messenger/bot/set/session/json` can set `enabled`, `wake_word` and `listen_group_alias`; `messenger/waha/set/session/json` can set the WAHA session. These values override the JSON defaults until the controller is restarted or the persistent config is changed.
 
-The bot XML itself can be replaced through MQTT:
+Replace the active Bot JSON through MQTT:
 
 ```bash
-mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/config/json -f bot_commands.json
 ```
 
 Reload the current file from disk:
@@ -69,10 +73,9 @@ Reload the current file from disk:
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
 ```
 
-
 ## ROS MQTT status and standard WhatsApp notifications
 
-The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flows by default:
+The supplied `bridge/bot_commands.example.json` enables these ROS MQTT driven flows by default:
 
 | Flow | ROS MQTT input | WhatsApp output |
 |---|---|---|
@@ -82,7 +85,7 @@ The supplied `bridge/bot_commands.example.xml` enables these ROS MQTT driven flo
 | Internal GPS loss notification | `gps_state/json` becomes not drive-ready while cached `robot_state.current_state=MOWING` | Warning that GPS was lost during mowing. |
 | `openmower_wifi_cache` | `sensors/om_system_wifi_signal_percent/data` | Updates the internal WLAN percentage cache for status and notifications. |
 
-The supplied XML follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
+The supplied JSON follows the unprefixed OpenMower topics observed on the target system. Command outputs use `action` and `timetable/set/suspension/json`, while status inputs use `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The controller status cache still accepts matching status topics with or without a prefix, so `Mobert: Status` remains robust after future prefix changes.
 
 `Mobert: Status` uses the latest cached ROS MQTT values and sends a WhatsApp-friendly reply. The timestamp is shown in the configured local time zone (`STATUS_TIMEZONE`, default `Europe/Berlin`). Field labels are bold, the title is visually separated by a line, and Emergency/Fehler are always visible. If OpenMower is actively mowing an area, the status shows only the human-readable area name and the calculated mowing progress, for example `Fläche: Plantage` and `Bearbeitung: 72.0 %`.
 
@@ -103,7 +106,7 @@ Example:
 *MQTT:* verbunden
 ```
 
-`Mobert: ?` is generated from the loaded XML command model. The active `/data/bot_commands.xml` is therefore the source of truth for the help reply: disabling, adding or changing command flows in the XML changes the help output after reload. Starting with v1.4, the generated help is also rebuilt on every MQTT XML replacement/reload and published as retained MQTT snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
+`Mobert: ?` is generated from the loaded JSON command model. The active `/data/bot_commands.json` is the source of truth for the help reply: disabling, hiding, adding or changing command flows in JSON changes the help output after reload. The generated help is rebuilt on every MQTT JSON replacement/reload and published as retained MQTT snapshots on `messenger/bot/help/text` and `messenger/bot/help/json`.
 
 For `Mobert: Status`, the controller waits briefly for fresh `robot_state` and WLAN MQTT samples before replying. If no fresh sample arrives within the timeout, it replies with the latest cached values.
 
@@ -209,7 +212,7 @@ When enabled, normal command confirmations such as Start, Pause, Stop, Zeitplan 
 
 ### One-time notifications
 
-The active XML sends one-time WhatsApp notifications for:
+The active JSON sends one-time WhatsApp notifications for:
 
 | Event | Trigger |
 |---|---|
@@ -335,12 +338,14 @@ messenger/
     │       └── name
     ├── commands/
     │   ├── json
-    │   ├── xml
+    │   ├── source/
+    │   │   └── json
     │   ├── count
     │   ├── version
     │   ├── source
     │   ├── set/
-    │   │   ├── xml
+    │   │   ├── config/
+    │   │   │   └── json
     │   │   └── renew/
     │   │       └── json
     │   └── validation/
@@ -501,7 +506,7 @@ Configure Mobert persistently:
 mosquitto_pub -h Mosquitto -t messenger/bot/set/persistent/json -m '{"enabled":true,"wake_word":"Mobert","listen_group_alias":"g014"}'
 ```
 
-Reload the XML command file:
+Reload the JSON command file:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
@@ -521,7 +526,7 @@ Mobert: Pause
 Mobert: Stop
 ```
 
-The command XML is stored at `/data/bot_commands.xml`. The package now also includes `controller_data/bot_commands.xml` with the current Flow XML so an existing Docker volume can be initialized directly from the delivered package. If the file does not exist, the controller creates it from the packaged `bot_commands.example.xml`.
+The command JSON is stored at `/data/bot_commands.json`. The package includes `controller_data/bot_commands.json` with the active Flow JSON so an existing Docker volume can be initialized directly from the delivered package. If the file does not exist, the controller creates it from the packaged `bot_commands.example.json`.
 
 ## Security
 
@@ -536,19 +541,19 @@ WAHA_DASHBOARD_PASSWORD
 waha_sessions/
 controller_data/
 config.json
-bot_commands.xml with private data
+bot_commands.json with private group/session data
 ```
 
-Use `.env.example`, `bridge/config.example.json` and `bridge/bot_commands.example.xml` for examples only.
+Use `.env.example`, `bridge/config.example.json` and `bridge/bot_commands.example.json` for examples only.
 
 
-Replace the Mobert XML via MQTT:
+Replace the Mobert JSON via MQTT:
 
 ```bash
-mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/xml -f bot_commands.xml
+mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/config/json -f bot_commands.json
 ```
 
-Reload the Mobert XML from disk:
+Reload the Mobert JSON from disk:
 
 ```bash
 mosquitto_pub -h Mosquitto -t messenger/bot/commands/set/renew/json -m '{}'
@@ -561,7 +566,7 @@ mosquitto_sub -h Mosquitto -C 1 -v -t messenger/bot/help/text
 mosquitto_sub -h Mosquitto -C 1 -v -t messenger/bot/help/json
 ```
 
-The help is rebuilt from the active XML whenever `messenger/bot/commands/set/xml` or `messenger/bot/commands/set/renew/json` is processed.
+The help is rebuilt from the active JSON whenever `messenger/bot/commands/set/config/json` or `messenger/bot/commands/set/renew/json` is processed.
 
 ## Kompakter ROS-MQTT-Status in WhatsApp
 
@@ -582,7 +587,7 @@ MQTT: verbunden
 
 Die Zeile `Fehler:` erscheint nur, wenn `robot_state.emergency` aktiv ist. Der Dock-Zustand wird nicht mehr separat ausgegeben; Laden wird über `robot_state.is_charging` als Teil der Akku-Zeile dargestellt.
 
-Die Standard-XML enthält aktivierte MQTT-Watchdog-Flows für:
+Die Standard-JSON enthält aktivierte MQTT-Watchdog-Flows für:
 
 - OpenMower fährt los: Wechsel von `current_state=IDLE` zu einem anderen Zustand.
 - Laden beendet: Wechsel von `is_charging=true` zu `false`.
@@ -595,14 +600,14 @@ Ausgehende WhatsApp-Nachrichten werden durch `send_text()` als `direction: out` 
 
 ## Paketbereinigung
 
-Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cachedateien. `controller_data/bot_commands.xml` bleibt bewusst enthalten, weil diese Datei die aktive Flow-XML fuer die Bridge bereitstellt. Weitere Details stehen in `docs/package-hygiene.md`.
+Das Auslieferungspaket enthaelt keine lokalen Git-Daten und keine Python-Cachedateien. `controller_data/bot_commands.json` bleibt bewusst enthalten, weil diese Datei die aktive Flow-JSON fuer die Bridge bereitstellt. Weitere Details stehen in `docs/package-hygiene.md`.
 
 
 ## v1.2 status cache correction for WiFi data topics
 
-The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered XML keeps these unprefixed topics for status and WLAN watchdog flows.
+The target installation publishes OpenMower status on the unprefixed MQTT topics `robot_state/json` and `sensors/om_system_wifi_signal_percent/data`. The delivered JSON keeps these unprefixed topics for status and WLAN watchdog flows.
 
-`Mobert: Status` no longer depends only on XML flow subscriptions. The controller subscribes independently to these concrete status cache topics on startup, including the Web-App style progress payload:
+`Mobert: Status` no longer depends only on JSON flow subscriptions. The controller subscribes independently to these concrete status cache topics on startup, including the Web-App style progress payload:
 
 - `robot_state/json`
 - `map/mowing_progress/status/json`
@@ -615,4 +620,4 @@ The target installation publishes OpenMower status on the unprefixed MQTT topics
 
 The WLAN subscription intentionally targets only `/data`. OpenMower also publishes a binary sibling such as `sensors/om_system_wifi_signal_percent/bson`; wildcard subscriptions like `sensors/om_system_wifi_signal_percent/#` can cache binary data and produce unreadable WLAN output. The controller additionally validates WLAN payloads as numbers before updating the cache.
 
-Custom filters can be provided with `OPENMOWER_STATUS_CACHE_TOPICS` as a comma-separated list. For WiFi, always use the concrete `/data` topic. After deployment, verify the active mounted XML inside the container. If it still starts with `<mobertCommands version="0.1">`, replace `/opt/stacks/whatsapp/controller_data/bot_commands.xml` with the file from this package and recreate the controller container.
+Custom filters can be provided with `OPENMOWER_STATUS_CACHE_TOPICS` as a comma-separated list. For WiFi, always use the concrete `/data` topic. After deployment, verify the active mounted JSON inside the container. The active file should be `/opt/stacks/whatsapp/controller_data/bot_commands.json` and contain `"format": "mobertBotConfig"`.

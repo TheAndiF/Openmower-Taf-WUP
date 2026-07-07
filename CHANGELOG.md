@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-07 - v1.0 - WAHA QR data via MQTT
+
+- Added MQTT publication of WAHA WhatsApp pairing QR raw values while the selected session is in `SCAN_QR_CODE` or `QR`.
+- Added requested compact QR data topics `messenger/status/WAHA_QR_Code_Data` and `messenger/waha/QR_Code_Data`.
+- Added QR metadata topics for required/available/text/session/status/error below both `messenger/status/` and `messenger/waha/`.
+- Added structured QR topics below `messenger/waha/session/qr/#`.
+- Added `WAHA_QR_MQTT_ENABLED`, `WAHA_QR_RAW_RETAIN` and `WAHA_QR_REFRESH_SECONDS` environment settings.
+- Added the QR MQTT environment settings to `compose.example.yaml`.
+- Added documentation for MQTT QR topics, security behavior and terminal QR rendering.
+
+
 ## 2026-07-03 - Status area progress and Auto Mow suspension
 
 - Added a dedicated `mowing_progress` cache for `map/mowing_progress/status/json` and related prefixed topics.

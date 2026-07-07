@@ -81,6 +81,13 @@ WAHA_REPAIR_COOLDOWN_SECONDS = env_int("WAHA_REPAIR_COOLDOWN_SECONDS", 300, mini
 WAHA_MAX_RESTARTS_PER_HOUR = env_int("WAHA_MAX_RESTARTS_PER_HOUR", 3, minimum=0)
 WAHA_SEND_READY_WAIT_SECONDS = env_int("WAHA_SEND_READY_WAIT_SECONDS", 30, minimum=0)
 WAHA_WATCHDOG_SECONDS = env_int("WAHA_WATCHDOG_SECONDS", 60, minimum=30)
+# MQTT output for WAHA WhatsApp pairing QR values.
+# The raw QR value is sensitive: anyone who can read it while it is valid could
+# pair the WhatsApp session.  Therefore active QR values are not retained by
+# default. Empty retained values are still published to clear stale QR data.
+WAHA_QR_MQTT_ENABLED = env_bool("WAHA_QR_MQTT_ENABLED", True)
+WAHA_QR_RAW_RETAIN = env_bool("WAHA_QR_RAW_RETAIN", False)
+WAHA_QR_REFRESH_SECONDS = env_int("WAHA_QR_REFRESH_SECONDS", 20, minimum=5, maximum=300)
 PROVIDER_NAME = os.getenv("MESSENGER_PROVIDER", "waha").strip().lower() or "waha"
 PROTOCOL_NAME = os.getenv("MESSENGER_PROTOCOL", "whatsapp").strip().lower() or "whatsapp"
 
@@ -789,6 +796,155 @@ def fetch_session() -> Dict[str, Any]:
         "assigned_worker": str(selected.get("assignedWorker") or selected.get("assigned_worker") or ""),
         "timestamps": selected.get("timestamps") if isinstance(selected.get("timestamps"), dict) else {},
     }
+
+
+
+def fetch_qr_raw(session_name: str) -> Tuple[str, str]:
+    """Return the raw WAHA QR value and an error string.
+
+    WAHA returns the QR value as JSON from /api/{session}/auth/qr?format=raw.
+    The value is meant to be rendered by the MQTT consumer as a QR code.
+    """
+    if not session_name:
+        return "", "No WAHA session selected"
+    try:
+        data = waha_get(f"/api/{session_name}/auth/qr?format=raw")
+    except Exception as exc:
+        return "", str(exc)
+    if isinstance(data, dict):
+        return str(data.get("value") or ""), ""
+    return "", "Unexpected WAHA QR response"
+
+
+def qr_payload(session: Dict[str, Any], qr_value: str = "", error: str = "") -> Dict[str, Any]:
+    """Build a structured QR status payload without changing the raw value."""
+    status = str(session.get("status") or "")
+    qr_required = status.upper() in {"SCAN_QR_CODE", "QR"}
+    return {
+        "d": {
+            "enabled": bool(WAHA_QR_MQTT_ENABLED),
+            "required": qr_required,
+            "available": bool(qr_value),
+            "session": session.get("name", ""),
+            "status": status,
+            "value": qr_value,
+            "error": error,
+            "format": "raw",
+            "render_hint": "Render value as a QR code, for example with qrencode -t ANSIUTF8.",
+            "last_update": now_iso(),
+        }
+    }
+
+
+def publish_qr_status_aliases(
+    client: mqtt.Client,
+    *,
+    qr_value: str,
+    required: bool,
+    available: bool,
+    session_name: str,
+    status: str,
+    text: str,
+    error: str = "",
+) -> None:
+    """Publish QR data in the compact status/waha topic names used by UI flows."""
+    # Requested aliases:
+    #   <base>/status/WAHA_QR_Code_Data
+    #   <base>/waha/QR_Code_Data
+    # Active QR data is sensitive and not retained by default. When no QR is
+    # needed, an empty retained value clears old data from the broker.
+    data_retain = WAHA_QR_RAW_RETAIN if qr_value else True
+
+    publish(client, topic("status", "WAHA_QR_Code_Data"), qr_value, retain=data_retain)
+    publish(client, topic("waha", "QR_Code_Data"), qr_value, retain=data_retain)
+
+    publish(client, topic("status", "WAHA_QR_Code_Required"), str(required).lower())
+    publish(client, topic("status", "WAHA_QR_Code_Available"), str(available).lower())
+    publish(client, topic("status", "WAHA_QR_Code_Text"), text)
+    publish(client, topic("status", "WAHA_QR_Code_Session"), session_name)
+    publish(client, topic("status", "WAHA_QR_Code_Status"), status)
+    publish(client, topic("status", "WAHA_QR_Code_Error"), error)
+
+    publish(client, topic("waha", "QR_Code_Required"), str(required).lower())
+    publish(client, topic("waha", "QR_Code_Available"), str(available).lower())
+    publish(client, topic("waha", "QR_Code_Text"), text)
+    publish(client, topic("waha", "QR_Code_Session"), session_name)
+    publish(client, topic("waha", "QR_Code_Status"), status)
+    publish(client, topic("waha", "QR_Code_Error"), error)
+
+
+def publish_waha_qr(client: mqtt.Client, session: Dict[str, Any]) -> None:
+    """Publish QR pairing data while WAHA waits for a WhatsApp scan."""
+    session_name = str(session.get("name") or "")
+    status = str(session.get("status") or "").upper()
+    qr_required = status in {"SCAN_QR_CODE", "QR"}
+
+    if not WAHA_QR_MQTT_ENABLED:
+        text = "QR-MQTT-Ausgabe deaktiviert"
+        publish(client, topic("waha", "session", "qr", "required"), "false")
+        publish(client, topic("waha", "session", "qr", "available"), "false")
+        publish(client, topic("waha", "session", "qr", "text"), text)
+        publish_qr_status_aliases(
+            client,
+            qr_value="",
+            required=False,
+            available=False,
+            session_name=session_name,
+            status=status,
+            text=text,
+        )
+        clear_retained(client, topic("waha", "session", "qr", "raw"))
+        clear_retained(client, topic("waha", "session", "qr", "json"))
+        return
+
+    if not qr_required:
+        text = "Kein QR-Code erforderlich"
+        publish(client, topic("waha", "session", "qr", "required"), "false")
+        publish(client, topic("waha", "session", "qr", "available"), "false")
+        publish(client, topic("waha", "session", "qr", "text"), text)
+        publish_qr_status_aliases(
+            client,
+            qr_value="",
+            required=False,
+            available=False,
+            session_name=session_name,
+            status=status,
+            text=text,
+        )
+        # Make sure a previously retained QR value cannot linger in the broker.
+        clear_retained(client, topic("waha", "session", "qr", "raw"))
+        clear_retained(client, topic("waha", "session", "qr", "json"))
+        clear_retained(client, topic("waha", "session", "qr", "error"))
+        return
+
+    qr_value, error = fetch_qr_raw(session_name)
+    payload = qr_payload(session, qr_value, error)
+    text = "QR-Code zum Koppeln erforderlich" if qr_value else "QR-Code erforderlich, aber noch nicht verfügbar"
+
+    publish(client, topic("waha", "session", "qr", "required"), "true")
+    publish(client, topic("waha", "session", "qr", "available"), str(bool(qr_value)).lower())
+    publish(client, topic("waha", "session", "qr", "session"), session_name)
+    publish(client, topic("waha", "session", "qr", "status"), status)
+    publish(client, topic("waha", "session", "qr", "last_update"), payload["d"]["last_update"])
+    publish(client, topic("waha", "session", "qr", "text"), text)
+    publish(client, topic("waha", "session", "qr", "error"), error)
+    publish_qr_status_aliases(
+        client,
+        qr_value=qr_value,
+        required=True,
+        available=bool(qr_value),
+        session_name=session_name,
+        status=status,
+        text=text,
+        error=error,
+    )
+
+    if qr_value:
+        publish(client, topic("waha", "session", "qr", "raw"), qr_value, retain=WAHA_QR_RAW_RETAIN)
+        publish(client, topic("waha", "session", "qr", "json"), payload, retain=WAHA_QR_RAW_RETAIN)
+    else:
+        clear_retained(client, topic("waha", "session", "qr", "raw"))
+        clear_retained(client, topic("waha", "session", "qr", "json"))
 
 
 def fetch_groups(session_name: str) -> Dict[str, Dict[str, str]]:
@@ -1961,6 +2117,7 @@ def publish_state(client: mqtt.Client, refresh_groups: bool = True) -> None:
     publish(client, topic("waha", "session", "can_send"), str(session["can_send"]).lower())
     publish(client, topic("waha", "session", "can_read_groups"), str(session["can_read_groups"]).lower())
     publish(client, topic("waha", "session", "last_error"), session["last_error"])
+    publish_waha_qr(client, session)
     publish_waha_repair_status(client)
 
     groups = groups_payload()["d"]
@@ -4026,6 +4183,39 @@ def waha_watchdog_loop(client: mqtt.Client) -> None:
             log(f"WAHA watchdog error: {exc}")
 
 
+
+def waha_qr_loop(client: mqtt.Client) -> None:
+    """Refresh the QR MQTT value more often than the full controller state.
+
+    WAHA pairing QR codes change quickly.  A short dedicated loop keeps the MQTT
+    QR topics useful without forcing all OpenMower status topics to refresh at
+    the same rate.
+    """
+    while RUNNING:
+        time.sleep(WAHA_QR_REFRESH_SECONDS)
+        if not WAHA_QR_MQTT_ENABLED or not waha_enabled():
+            continue
+        try:
+            global SESSION
+            session = fetch_session()
+            SESSION = session
+            publish_waha_qr(client, session)
+        except Exception as exc:
+            text = "QR-Code konnte nicht geprüft werden"
+            publish_qr_status_aliases(
+                client,
+                qr_value="",
+                required=False,
+                available=False,
+                session_name=str(SESSION.get("name", "") if SESSION else ""),
+                status=str(SESSION.get("status", "ERROR") if SESSION else "ERROR"),
+                text=text,
+                error=str(exc),
+            )
+            publish(client, topic("waha", "session", "qr", "error"), str(exc))
+            log(f"WAHA QR refresh error: {exc}")
+
+
 def refresh_loop(client: mqtt.Client) -> None:
     while RUNNING:
         time.sleep(REFRESH_SECONDS)
@@ -4097,6 +4287,8 @@ def main() -> None:
     thread.start()
     waha_watchdog_thread = threading.Thread(target=waha_watchdog_loop, args=(client,), daemon=True)
     waha_watchdog_thread.start()
+    qr_thread = threading.Thread(target=waha_qr_loop, args=(client,), daemon=True)
+    qr_thread.start()
     status_thread = threading.Thread(target=status_push_loop, args=(client,), daemon=True)
     status_thread.start()
     client.loop_forever()

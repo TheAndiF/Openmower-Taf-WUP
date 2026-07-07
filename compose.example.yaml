@@ -45,6 +45,11 @@ services:
       - WAHA_MAX_RESTARTS_PER_HOUR=${WAHA_MAX_RESTARTS_PER_HOUR:-3}
       - WAHA_SEND_READY_WAIT_SECONDS=${WAHA_SEND_READY_WAIT_SECONDS:-30}
       - WAHA_WATCHDOG_SECONDS=${WAHA_WATCHDOG_SECONDS:-60}
+      # WAHA QR raw value via MQTT while the session waits for WhatsApp pairing.
+      # Active QR data is sensitive and is not retained by default.
+      - WAHA_QR_MQTT_ENABLED=${WAHA_QR_MQTT_ENABLED:-true}
+      - WAHA_QR_RAW_RETAIN=${WAHA_QR_RAW_RETAIN:-false}
+      - WAHA_QR_REFRESH_SECONDS=${WAHA_QR_REFRESH_SECONDS:-20}
       # Non-secret hints published under messenger/status/description.
       # The password itself is never published to MQTT.
       - WAHA_EXTERNAL_PORT=${WAHA_EXTERNAL_PORT:-9629}

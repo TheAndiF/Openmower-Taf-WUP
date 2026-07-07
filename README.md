@@ -16,6 +16,7 @@ WAHA-specific topics live below `messenger/waha/`. The optional **Mobert** bot l
 - Select the default WhatsApp target group through MQTT.
 - Send WhatsApp messages through MQTT.
 - Enable or disable WAHA through MQTT, live or persistently.
+- Publish the active WAHA WhatsApp pairing QR raw value to MQTT while the selected session is waiting for a QR scan.
 - Store a configurable retained history of the last messages, default `10`.
 - Load Mobert flow commands from `/data/bot_commands.xml` using the XML-driven module architecture.
 - Publish the raw command/flow XML and parsed command JSON below `messenger/bot/commands/#`.
@@ -237,12 +238,26 @@ messenger/
 │   ├── text
 │   ├── description
 │   ├── provider
-│   └── protocol
+│   ├── protocol
+│   ├── WAHA_QR_Code_Data
+│   ├── WAHA_QR_Code_Required
+│   ├── WAHA_QR_Code_Available
+│   ├── WAHA_QR_Code_Text
+│   ├── WAHA_QR_Code_Session
+│   ├── WAHA_QR_Code_Status
+│   └── WAHA_QR_Code_Error
 │
 ├── waha/
 │   ├── json
 │   ├── enabled
 │   ├── text
+│   ├── QR_Code_Data
+│   ├── QR_Code_Required
+│   ├── QR_Code_Available
+│   ├── QR_Code_Text
+│   ├── QR_Code_Session
+│   ├── QR_Code_Status
+│   ├── QR_Code_Error
 │   ├── set/
 │   │   ├── session/
 │   │   │   └── json
@@ -259,6 +274,16 @@ messenger/
 │   │   ├── can_send
 │   │   ├── can_read_groups
 │   │   ├── last_error
+│   │   ├── qr/
+│   │   │   ├── raw
+│   │   │   ├── json
+│   │   │   ├── required
+│   │   │   ├── available
+│   │   │   ├── session
+│   │   │   ├── status
+│   │   │   ├── text
+│   │   │   ├── error
+│   │   │   └── last_update
 │   │   └── repair/
 │   │       ├── json
 │   │       ├── enabled
@@ -355,6 +380,63 @@ messenger/
     └── events/
         └── json
 ```
+
+
+## WAHA QR code via MQTT
+
+When the selected WAHA session is in `SCAN_QR_CODE` or `QR`, the controller fetches the raw QR value from WAHA and publishes it to MQTT.  The requested compact topics are:
+
+```text
+messenger/status/WAHA_QR_Code_Data
+messenger/waha/QR_Code_Data
+```
+
+The same state is also available below `messenger/waha/session/qr/#`.
+
+```text
+messenger/waha/session/qr/raw
+messenger/waha/session/qr/json
+messenger/waha/session/qr/required
+messenger/waha/session/qr/available
+messenger/waha/session/qr/session
+messenger/waha/session/qr/status
+messenger/waha/session/qr/text
+messenger/waha/session/qr/error
+messenger/waha/session/qr/last_update
+```
+
+Behavior:
+
+| WAHA status | Data topic | Required | Available | Text |
+|---|---|---:|---:|---|
+| `SCAN_QR_CODE` or `QR` and WAHA returns a value | raw QR pairing value | `true` | `true` | `QR-Code zum Koppeln erforderlich` |
+| `SCAN_QR_CODE` or `QR` but WAHA returns no value yet | empty | `true` | `false` | `QR-Code erforderlich, aber noch nicht verfügbar` |
+| `WORKING` or any state where no pairing is needed | empty | `false` | `false` | `Kein QR-Code erforderlich` |
+| QR MQTT output disabled | empty | `false` | `false` | `QR-MQTT-Ausgabe deaktiviert` |
+
+Security: the active QR value is not retained by default because it can be used for WhatsApp pairing while it is valid. When no QR is needed, the controller publishes an empty retained value to clear stale broker data.
+
+```env
+WAHA_QR_MQTT_ENABLED=true
+WAHA_QR_RAW_RETAIN=false
+WAHA_QR_REFRESH_SECONDS=20
+```
+
+Render the raw MQTT value as a terminal QR code:
+
+```bash
+mosquitto_sub -h Mosquitto -t 'messenger/waha/QR_Code_Data' | while IFS= read -r QR; do
+  clear
+  if [ -n "$QR" ]; then
+    echo "WhatsApp QR-Code scannen"
+    qrencode -t ANSIUTF8 "$QR"
+  else
+    echo "Kein QR-Code erforderlich."
+  fi
+done
+```
+
+See also `docs/waha-qr-mqtt.md`.
 
 ## WAHA session self-healing
 

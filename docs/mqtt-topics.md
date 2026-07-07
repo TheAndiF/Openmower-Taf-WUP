@@ -24,12 +24,26 @@ messenger/
 │   ├── text
 │   ├── description
 │   ├── provider
-│   └── protocol
+│   ├── protocol
+│   ├── WAHA_QR_Code_Data
+│   ├── WAHA_QR_Code_Required
+│   ├── WAHA_QR_Code_Available
+│   ├── WAHA_QR_Code_Text
+│   ├── WAHA_QR_Code_Session
+│   ├── WAHA_QR_Code_Status
+│   └── WAHA_QR_Code_Error
 │
 ├── waha/
 │   ├── json
 │   ├── enabled
 │   ├── text
+│   ├── QR_Code_Data
+│   ├── QR_Code_Required
+│   ├── QR_Code_Available
+│   ├── QR_Code_Text
+│   ├── QR_Code_Session
+│   ├── QR_Code_Status
+│   ├── QR_Code_Error
 │   ├── set/
 │   │   ├── session/
 │   │   │   └── json
@@ -46,6 +60,16 @@ messenger/
 │   │   ├── can_send
 │   │   ├── can_read_groups
 │   │   ├── last_error
+│   │   ├── qr/
+│   │   │   ├── raw
+│   │   │   ├── json
+│   │   │   ├── required
+│   │   │   ├── available
+│   │   │   ├── session
+│   │   │   ├── status
+│   │   │   ├── text
+│   │   │   ├── error
+│   │   │   └── last_update
 │   │   └── repair/
 │   │       ├── json
 │   │       ├── enabled
@@ -222,6 +246,76 @@ Validation is published to:
 
 ```text
 messenger/waha/validation/json
+```
+
+
+## WAHA QR code data
+
+The controller publishes the WAHA WhatsApp pairing QR raw value to MQTT while the selected session is waiting for a scan. The requested compact topics are:
+
+```text
+messenger/status/WAHA_QR_Code_Data
+messenger/waha/QR_Code_Data
+```
+
+Additional metadata is published as:
+
+```text
+messenger/status/WAHA_QR_Code_Required
+messenger/status/WAHA_QR_Code_Available
+messenger/status/WAHA_QR_Code_Text
+messenger/status/WAHA_QR_Code_Session
+messenger/status/WAHA_QR_Code_Status
+messenger/status/WAHA_QR_Code_Error
+
+messenger/waha/QR_Code_Required
+messenger/waha/QR_Code_Available
+messenger/waha/QR_Code_Text
+messenger/waha/QR_Code_Session
+messenger/waha/QR_Code_Status
+messenger/waha/QR_Code_Error
+
+messenger/waha/session/qr/raw
+messenger/waha/session/qr/json
+messenger/waha/session/qr/required
+messenger/waha/session/qr/available
+messenger/waha/session/qr/session
+messenger/waha/session/qr/status
+messenger/waha/session/qr/text
+messenger/waha/session/qr/error
+messenger/waha/session/qr/last_update
+```
+
+Values:
+
+| Situation | `WAHA_QR_Code_Data` / `QR_Code_Data` | Required | Available | Text |
+|---|---|---:|---:|---|
+| WAHA status is `SCAN_QR_CODE` or `QR` and a QR value is available | raw QR pairing value | `true` | `true` | `QR-Code zum Koppeln erforderlich` |
+| WAHA requires a QR code but the value is not available yet | empty | `true` | `false` | `QR-Code erforderlich, aber noch nicht verfügbar` |
+| WAHA is connected or no QR is needed | empty | `false` | `false` | `Kein QR-Code erforderlich` |
+| QR publishing is disabled | empty | `false` | `false` | `QR-MQTT-Ausgabe deaktiviert` |
+
+Security note: active raw QR values are not retained by default. Empty retained values are published when no QR is needed so old values are cleared from the broker.
+
+Render the raw value as a QR code:
+
+```bash
+mosquitto_sub -h Mosquitto -t 'messenger/waha/QR_Code_Data' | while IFS= read -r QR; do
+  clear
+  if [ -n "$QR" ]; then
+    qrencode -t ANSIUTF8 "$QR"
+  else
+    echo "Kein QR-Code erforderlich."
+  fi
+done
+```
+
+Configuration:
+
+```env
+WAHA_QR_MQTT_ENABLED=true
+WAHA_QR_RAW_RETAIN=false
+WAHA_QR_REFRESH_SECONDS=20
 ```
 
 ## WAHA session

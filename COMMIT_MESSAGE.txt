@@ -1,21 +1,18 @@
-BL_Update status area progress and automow
-Date: 2026-07-03
+BL_Publish WAHA QR data via MQTT
+Date: 2026-07-07
 Summary:
-- Added a dedicated mowing progress cache for map/mowing_progress/status/json and prefixed variants.
-- Changed Status and MowArea to prefer current_area_id before checkpoint_area_id and to read area progress from areas[current_area_id].percent.
-- Kept area queue/plan data separate from live progress data so readable area names are not overwritten.
-- Updated Auto Mow status output to show activated, disabled, suspended until a date, or suspended infinitely for year 9999 values.
-- Updated README and project documentation for the new MQTT fields and status behavior.
+- Published raw WAHA pairing QR values to MQTT while the selected session requires a QR scan.
+- Added requested compact topics under messenger/status/WAHA_QR_Code_Data and messenger/waha/QR_Code_Data.
+- Added QR metadata topics, non-retained active QR handling, and retained empty cleanup for stale values.
+- Added a dedicated QR refresh loop and documentation for rendering the MQTT value as a QR code.
 Changed files:
 - .env.example
 - README.md
 - CHANGELOG.md
 - COMMIT_MESSAGE.txt
 - bridge/controller.py
-- docs/auto-mow-status.md
-- docs/mobert-status-formatting.md
-- docs/mow-area-status.md
+- compose.example.yaml
 - docs/mqtt-topics.md
-- docs/openmower-ros-whatsapp-notifications.md
-- docs/status-cache-subscriptions.md
-- docs/whatsapp-status-gps-automation.md
+- docs/waha-qr-mqtt.md
+- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - WAHA QR MQTT - v1.0.docx
+- docs/2026-07-07 - Openmower-Taf-WUP - Dokumentation - WAHA QR MQTT - v1.0.pdf
